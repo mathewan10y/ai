@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import '../models/movie.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://10.0.2.2:8000';
+  static const String baseUrl = 'http://localhost:8000';
 
   static Future<MovieDetailsResponse> getRecommendations(String query) async {
     final encodedQuery = Uri.encodeComponent(query);
