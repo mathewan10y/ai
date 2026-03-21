@@ -5,6 +5,7 @@ import pandas as pd
 import requests
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import concurrent.futures
 
 app = FastAPI()
 
@@ -134,21 +135,24 @@ def get_recommendations(movie_title: str):
     else:
         movie_index = matches.index[0]
     
-    # 3. Calculate Recommendations
-    # ... (Keep the math/similarity logic the same) ...
+# 3. Calculate Recommendations
     try:
         distances = similarity[movie_index]
         movie_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:6]
         
-        results = []
-        for i in movie_list:
+        # Helper function to fetch recommendations in parallel
+        def fetch_rec(i):
             movie_row = movies.iloc[i[0]]
-            results.append({
+            return {
                 "title": movie_row.title,
                 "poster": fetch_poster(movie_row.id)
-            })
+            }
             
-        # NEW: Get full details for the searched movie
+        # Multithread the 5 recommendations
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(fetch_rec, movie_list))
+            
+        # Get full details for the searched movie
         searched_row = movies.iloc[movie_index]
         searched_details = fetch_movie_details(searched_row.id)
         searched_details["title"] = searched_row.title
@@ -157,9 +161,12 @@ def get_recommendations(movie_title: str):
             "searched_movie": searched_details, 
             "recommendations": results
         }
+    
     except Exception as e:
         return {"recommendations": [], "error": f"Internal Error: {str(e)}"}
-
+    # 3. Calculate Recommendations
+    # ... (Keep the math/similarity logic the same) ...
+    
 
 @app.get("/suggestions")
 def get_suggestions(query: str):
@@ -172,20 +179,26 @@ def get_suggestions(query: str):
 
 @app.get("/home-movies")
 def get_home_movies():
-    """Returns random movies grouped by categories for the home screen."""
-    # We use random samples to simulate genre rows
+    """Returns 15 random movies per category, fetched in parallel for extreme speed."""
     categories = ["Trending Today", "Action & Adventure", "Critically Acclaimed"]
     home_data = {}
     
+    # Helper function for the thread pool
+    def process_movie(row_tuple):
+        index, row = row_tuple
+        return {
+            "title": row.title,
+            "poster": fetch_poster(row.id)
+        }
+
     for cat in categories:
-        # Grab 5 random movies
-        sample = movies.sample(5)
-        results = []
-        for _, row in sample.iterrows():
-            results.append({
-                "title": row.title,
-                "poster": fetch_poster(row.id)
-            })
+        # 1. Increased from 5 to 15 to fill wide desktop screens
+        sample = movies.sample(15) 
+        
+        # 2. Multithreading: Fetch all 15 posters simultaneously instead of one by one
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            results = list(executor.map(process_movie, sample.iterrows()))
+            
         home_data[cat] = results
         
     return home_data
