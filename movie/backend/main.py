@@ -33,6 +33,7 @@ def fetch_movie_details(movie_id):
             image_url = "https://image.tmdb.org/t/p/w200" + profile_path if profile_path else "https://via.placeholder.com/200x300?text=No+Photo"
             
             cast_list.append({
+                "id": actor.get('id'),    
                 "name": actor.get('name'),
                 "image": image_url
             })
@@ -220,6 +221,31 @@ def get_home_movies():
         home_data[cat] = results
         
     return home_data
+
+@app.get("/actor-movies/{actor_id}")
+def get_actor_movies(actor_id: int):
+    """Fetches the top 10 most popular movies for a specific actor from TMDB."""
+    try:
+        url = f"https://api.themoviedb.org/3/person/{actor_id}/movie_credits?api_key={API_KEY}&language=en-US"
+        response = requests.get(url, timeout=5).json()
+        
+        # Grab the movies they acted in and sort by popularity
+        cast_movies = response.get('cast', [])
+        sorted_movies = sorted(cast_movies, key=lambda x: x.get('popularity', 0), reverse=True)[:10]
+        
+        results = []
+        for m in sorted_movies:
+            # Only include movies that actually have a poster
+            if m.get('poster_path'):
+                results.append({
+                    "title": m.get('title'),
+                    "poster": "https://image.tmdb.org/t/p/w500/" + m.get('poster_path')
+                })
+                
+        # We use the key "recommendations" so the Flutter frontend can reuse the existing Movie model
+        return {"recommendations": results}
+    except Exception as e:
+        return {"recommendations": [], "error": str(e)}    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

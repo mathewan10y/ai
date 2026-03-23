@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/movie.dart';
 import '../services/api_service.dart';
+import 'actor_movies_screen.dart';
 
 class DetailsScreen extends StatefulWidget {
   final String movieTitle;
@@ -171,39 +172,54 @@ class _DetailsScreenState extends State<DetailsScreen> {
                                             itemCount: movieDetails!.searchedMovie.cast!.length,
                                             itemBuilder: (context, index) {
                                               final castMember = movieDetails!.searchedMovie.cast![index];
-                                              return Container(
-                                                margin: EdgeInsets.only(right: 16),
-                                                child: Column(
-                                                  children: [
-                                                    CircleAvatar(
-                                                      radius: 35,
-                                                      backgroundImage: castMember['image'] != null
-                                                          ? CachedNetworkImageProvider(castMember['image'])
-                                                          : null,
-                                                      backgroundColor: Colors.grey[600],
-                                                      child: castMember['image'] == null
-                                                          ? Icon(
-                                                              Icons.person,
-                                                              size: 30,
-                                                              color: Colors.white,
-                                                            )
-                                                          : null,
-                                                    ),
-                                                    SizedBox(height: 8),
-                                                    SizedBox(
-                                                      width: 80,
-                                                      child: Text(
-                                                        castMember['name'] ?? 'Unknown',
-                                                        style: GoogleFonts.poppins(
-                                                          color: Colors.white,
-                                                          fontSize: 12,
+                                              return GestureDetector(
+                                                onTap: () {
+                                                  if (castMember['id'] != null) {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (context) => ActorMoviesScreen(
+                                                          actorId: castMember['id'],
+                                                          actorName: castMember['name'] ?? 'Unknown Actor',
                                                         ),
-                                                        textAlign: TextAlign.center,
-                                                        maxLines: 2,
-                                                        overflow: TextOverflow.ellipsis,
                                                       ),
-                                                    ),
-                                                  ],
+                                                    );
+                                                  }
+                                                },
+                                                child: Container(
+                                                  margin: EdgeInsets.only(right: 16),
+                                                  child: Column(
+                                                    children: [
+                                                      CircleAvatar(
+                                                        radius: 35,
+                                                        backgroundImage: castMember['image'] != null
+                                                            ? CachedNetworkImageProvider(castMember['image'])
+                                                            : null,
+                                                        backgroundColor: Colors.grey[600],
+                                                        child: castMember['image'] == null
+                                                            ? Icon(
+                                                                Icons.person,
+                                                                size: 30,
+                                                                color: Colors.white,
+                                                              )
+                                                            : null,
+                                                      ),
+                                                      SizedBox(height: 8),
+                                                      SizedBox(
+                                                        width: 80,
+                                                        child: Text(
+                                                          castMember['name'] ?? 'Unknown',
+                                                          style: GoogleFonts.poppins(
+                                                            color: Colors.white,
+                                                            fontSize: 12,
+                                                          ),
+                                                          textAlign: TextAlign.center,
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
                                               );
                                             },
