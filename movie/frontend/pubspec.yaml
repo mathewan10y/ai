@@ -37,6 +37,8 @@ dependencies:
   http: ^1.2.0                # To talk to your FastAPI server
   cached_network_image: ^3.3.1 # To load and cache TMDB posters smoothly
   google_fonts: ^6.1.0
+  shared_preferences: ^2.2.2   # For storing user ID locally
+  uuid: ^4.2.1                # For generating unique user IDs
 
 dev_dependencies:
   flutter_test:

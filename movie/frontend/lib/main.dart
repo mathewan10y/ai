@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
-void main() {
+import 'services/api_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ApiService.initUser();
   runApp(const MovieRecommenderApp());
 }
 

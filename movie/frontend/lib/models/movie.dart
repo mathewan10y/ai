@@ -1,4 +1,5 @@
 class Movie {
+  final int id;
   final String title;
   final String poster;
   final double? rating;
@@ -6,6 +7,7 @@ class Movie {
   final List<Map<String, dynamic>>? cast;
 
   Movie({
+    required this.id,
     required this.title, 
     required this.poster, 
     this.rating, 
@@ -15,6 +17,7 @@ class Movie {
 
   factory Movie.fromJson(Map<String, dynamic> json) {
     return Movie(
+      id: json['id'] ?? 0,
       title: json['title'] ?? '',
       poster: json['poster'] ?? '',
       rating: json['rating']?.toDouble(),

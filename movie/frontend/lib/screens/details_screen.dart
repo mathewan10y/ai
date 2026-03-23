@@ -31,6 +31,11 @@ class _DetailsScreenState extends State<DetailsScreen> {
         movieDetails = details;
         isLoading = false;
       });
+      
+      // Track the movie click for personalization (only if ID exists)
+      if (details.searchedMovie.id > 0) {
+        await ApiService.trackClick(details.searchedMovie.id);
+      }
     } catch (e) {
       setState(() {
         isLoading = false;
