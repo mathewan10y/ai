@@ -3,12 +3,14 @@ class Movie {
   final String poster;
   final double? rating;
   final String? overview;
+  final List<Map<String, dynamic>>? cast;
 
   Movie({
     required this.title, 
     required this.poster, 
     this.rating, 
-    this.overview
+    this.overview,
+    this.cast
   });
 
   factory Movie.fromJson(Map<String, dynamic> json) {
@@ -17,6 +19,9 @@ class Movie {
       poster: json['poster'] ?? '',
       rating: json['rating']?.toDouble(),
       overview: json['overview'],
+      cast: (json['cast'] as List<dynamic>?)
+          ?.map((item) => item as Map<String, dynamic>)
+          .toList(),
     );
   }
 }

@@ -149,6 +149,68 @@ class _DetailsScreenState extends State<DetailsScreen> {
                                       maxLines: 6,
                                       overflow: TextOverflow.ellipsis,
                                     ),
+                                  SizedBox(height: 20),
+                                  // Cast Section
+                                  if (movieDetails!.searchedMovie.cast != null && movieDetails!.searchedMovie.cast!.isNotEmpty)
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Cast',
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        SizedBox(height: 12),
+                                        Container(
+                                          height: 120,
+                                          child: ListView.builder(
+                                            scrollDirection: Axis.horizontal,
+                                            itemCount: movieDetails!.searchedMovie.cast!.length,
+                                            itemBuilder: (context, index) {
+                                              final castMember = movieDetails!.searchedMovie.cast![index];
+                                              return Container(
+                                                margin: EdgeInsets.only(right: 16),
+                                                child: Column(
+                                                  children: [
+                                                    CircleAvatar(
+                                                      radius: 35,
+                                                      backgroundImage: castMember['image'] != null
+                                                          ? CachedNetworkImageProvider(castMember['image'])
+                                                          : null,
+                                                      backgroundColor: Colors.grey[600],
+                                                      child: castMember['image'] == null
+                                                          ? Icon(
+                                                              Icons.person,
+                                                              size: 30,
+                                                              color: Colors.white,
+                                                            )
+                                                          : null,
+                                                    ),
+                                                    SizedBox(height: 8),
+                                                    SizedBox(
+                                                      width: 80,
+                                                      child: Text(
+                                                        castMember['name'] ?? 'Unknown',
+                                                        style: GoogleFonts.poppins(
+                                                          color: Colors.white,
+                                                          fontSize: 12,
+                                                        ),
+                                                        textAlign: TextAlign.center,
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                 ],
                               ),
                             ),

@@ -19,19 +19,37 @@ app.add_middleware(
 )
 
 def fetch_movie_details(movie_id):
-    """Fetches poster, rating, and overview from TMDB."""
+    """Fetches poster, rating, overview, and CAST (names + images) from TMDB."""
     try:
-        url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={API_KEY}&language=en-US"
+        url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={API_KEY}&language=en-US&append_to_response=credits"
         response = requests.get(url, timeout=5)
         data = response.json()
+        
+        # NEW: Extract the top 4 cast members' names AND profile pictures
+        cast_list = []
+        for actor in data.get('credits', {}).get('cast', [])[:4]:
+            profile_path = actor.get('profile_path')
+            # Using w200 resolution since these will be small avatars
+            image_url = "https://image.tmdb.org/t/p/w200" + profile_path if profile_path else "https://via.placeholder.com/200x300?text=No+Photo"
+            
+            cast_list.append({
+                "name": actor.get('name'),
+                "image": image_url
+            })
+
         return {
             "poster": "https://image.tmdb.org/t/p/w500/" + data.get('poster_path', '') if data.get('poster_path') else "https://via.placeholder.com/500x750?text=No+Poster",
             "rating": round(data.get('vote_average', 0.0), 1),
-            "overview": data.get('overview', 'No overview available.')
+            "overview": data.get('overview', 'No overview available.'),
+            "cast": cast_list  # Sending the rich cast list to Flutter
         }
     except Exception:
-        return {"poster": "https://via.placeholder.com/500x750?text=Error", "rating": 0.0, "overview": "Could not fetch details."}
-
+        return {
+            "poster": "https://via.placeholder.com/500x750?text=Error", 
+            "rating": 0.0, 
+            "overview": "Could not fetch details.", 
+            "cast": []
+        }
 # 1. Load the AI Brain into memory
 # Ensure these files are in the same folder as main.py
 try:
