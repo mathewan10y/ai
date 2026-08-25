@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-huggingface_hub
-requests
-feedparser
-yfinance
-groq
-google-genai
-python-dotenv
