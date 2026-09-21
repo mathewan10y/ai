@@ -12,7 +12,15 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  Copy,
+  Check,
+  ShieldCheck,
+  Factory,
+  Layers,
+  Home,
+  Building2,
+  Radio
 } from 'lucide-react';
 import { useGridStore } from '../../store/gridStore';
 
@@ -28,13 +36,18 @@ export default function TradingDashboard() {
   const [minReserve, setMinReserve] = useState(50);
   const [targetSellPrice, setTargetSellPrice] = useState(0.15);
   const [maxBuyPrice, setMaxBuyPrice] = useState(0.25);
+  const [chargeThresholdPrice, setChargeThresholdPrice] = useState(0.14);
+  const [dischargeThresholdPrice, setDischargeThresholdPrice] = useState(0.22);
   const [savedAlert, setSavedAlert] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   useEffect(() => {
     if (selectedNode) {
       if (selectedNode.minBatteryReserve !== undefined) setMinReserve(selectedNode.minBatteryReserve);
       if (selectedNode.targetSellPrice !== undefined) setTargetSellPrice(selectedNode.targetSellPrice);
       if (selectedNode.maxBuyPrice !== undefined) setMaxBuyPrice(selectedNode.maxBuyPrice);
+      if (selectedNode.chargeThresholdPrice !== undefined) setChargeThresholdPrice(selectedNode.chargeThresholdPrice);
+      if (selectedNode.dischargeThresholdPrice !== undefined) setDischargeThresholdPrice(selectedNode.dischargeThresholdPrice);
     }
   }, [selectedNode?.id]);
 
@@ -44,30 +57,55 @@ export default function TradingDashboard() {
         <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/50 text-slate-400 mb-4 animate-bounce">
           <Cpu className="w-8 h-8 text-cyan-400" />
         </div>
-        <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-1">Agent Inspector</h3>
-        <p className="text-xs text-slate-400 max-w-[240px]">
-          Click any Node on the energy grid map to inspect its real-time telemetry, wallet balance, and trading strategy.
+        <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-1">Autonomous Agent Inspector</h3>
+        <p className="text-xs text-slate-400 max-w-[250px]">
+          Click any Node on the energy grid to inspect its real-time telemetry, cryptographic Ethereum wallet, and trading policies.
         </p>
       </aside>
     );
   }
 
-  const isProsumer = selectedNode.category === 'Prosumer';
-  const isConsumer = selectedNode.category === 'Consumer';
-  const isGrid = selectedNode.category === 'UtilityGrid';
+  const category = selectedNode.category || (selectedNode.type ? selectedNode.type.replace('Node', '') : 'Prosumer');
+  const isProsumer = category === 'Prosumer';
+  const isConsumer = category === 'Consumer';
+  const isSolarFarm = category === 'SolarFarm';
+  const isBESS = category === 'BESS';
+  const isGrid = category === 'UtilityGrid' || category === 'Grid';
+
   const batteryPercent = selectedNode.maxBattery
     ? Math.min(100, Math.round((selectedNode.battery / selectedNode.maxBattery) * 100))
     : 100;
 
+  const handleCopyAddress = () => {
+    if (selectedNode.address) {
+      navigator.clipboard.writeText(selectedNode.address);
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
+    }
+  };
+
   const handleSaveStrategy = (e) => {
     e.preventDefault();
-    const settings = isProsumer
-      ? { minBatteryReserve: Number(minReserve), targetSellPrice: Number(targetSellPrice) }
-      : { maxBuyPrice: Number(maxBuyPrice) };
-    
+    let settings = {};
+    if (isProsumer || isSolarFarm) {
+      settings = { minBatteryReserve: Number(minReserve), targetSellPrice: Number(targetSellPrice) };
+    } else if (isConsumer) {
+      settings = { maxBuyPrice: Number(maxBuyPrice) };
+    } else if (isBESS) {
+      settings = {
+        chargeThresholdPrice: Number(chargeThresholdPrice),
+        dischargeThresholdPrice: Number(dischargeThresholdPrice)
+      };
+    }
+
     updateNodeStrategy(selectedNode.id, settings);
     setSavedAlert(true);
     setTimeout(() => setSavedAlert(false), 2000);
+  };
+
+  const formatAddress = (addr) => {
+    if (!addr) return '0x000...0000';
+    return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
   };
 
   return (
@@ -82,14 +120,22 @@ export default function TradingDashboard() {
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                   : isConsumer
                   ? 'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                  : isSolarFarm
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                  : isBESS
+                  ? 'bg-purple-500/10 border-purple-500/30 text-purple-400'
                   : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
               }`}
             >
-              <Cpu className="w-4 h-4" />
+              {isProsumer && <Home className="w-4 h-4" />}
+              {isConsumer && <Building2 className="w-4 h-4" />}
+              {isSolarFarm && <Factory className="w-4 h-4" />}
+              {isBESS && <Layers className="w-4 h-4" />}
+              {isGrid && <Radio className="w-4 h-4" />}
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-100 leading-none">{selectedNode.name}</h2>
-              <span className="text-[10px] font-mono text-slate-400">ID: {selectedNode.id}</span>
+              <span className="text-[10px] font-mono text-slate-400">Agent ID: {selectedNode.id}</span>
             </div>
           </div>
           <button
@@ -100,36 +146,71 @@ export default function TradingDashboard() {
           </button>
         </div>
 
-        {/* Status / Category Banner */}
+        {/* Category & Status Banner */}
         <div className="px-4 py-2.5 bg-slate-950/40 border-b border-slate-800/60 flex items-center justify-between text-xs">
-          <span className="text-slate-400 font-medium">Agent Type:</span>
+          <span className="text-slate-400 font-medium">Archetype:</span>
           <span
             className={`px-2 py-0.5 rounded-full font-mono text-[11px] font-bold ${
               isProsumer
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 : isConsumer
                 ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                : isSolarFarm
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                : isBESS
+                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                 : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
             }`}
           >
-            {selectedNode.category}
+            {category}
           </span>
         </div>
 
         {/* Live Telemetry Cards */}
         <div className="p-4 space-y-4">
-          {/* Wallet Balance Card */}
-          <div className="glass-card p-3 rounded-xl border border-slate-800/80 bg-gradient-to-br from-slate-900/90 to-slate-950/90">
+          {/* Blockchain Wallet Identity Card */}
+          <div className="glass-card p-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950/90 space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="flex items-center space-x-1.5">
-                <Wallet className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Smart Wallet Balance</span>
+              <span className="flex items-center space-x-1.5 text-cyan-300 font-medium">
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Ethereum Keypair (Ethers.js)</span>
               </span>
-              <span className="text-[10px] text-slate-500 font-mono">P2P Escrow</span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[9px] font-mono">
+                Verified Signer
+              </span>
             </div>
-            <div className="mt-2 text-2xl font-mono font-extrabold text-slate-100 flex items-baseline space-x-1">
-              <span>${selectedNode.walletBalance ? selectedNode.walletBalance.toFixed(2) : '0.00'}</span>
-              <span className="text-xs font-normal text-emerald-400 font-mono">USD</span>
+
+            <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-lg border border-slate-800 font-mono text-xs">
+              <span className="text-slate-300 font-bold tracking-wider">{formatAddress(selectedNode.address)}</span>
+              <button
+                onClick={handleCopyAddress}
+                className="flex items-center space-x-1 text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40 transition-colors"
+                title="Copy full Ethereum address"
+              >
+                {copiedAddress ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span className="text-emerald-400">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Smart Wallet Balance */}
+            <div className="pt-1 flex items-baseline justify-between">
+              <span className="text-[11px] text-slate-400 flex items-center space-x-1">
+                <Wallet className="w-3 h-3 text-emerald-400" />
+                <span>Escrow Balance:</span>
+              </span>
+              <div className="text-xl font-mono font-extrabold text-slate-100">
+                ${selectedNode.walletBalance ? selectedNode.walletBalance.toFixed(2) : '0.00'}{' '}
+                <span className="text-[10px] text-emerald-400 font-normal">USD</span>
+              </div>
             </div>
           </div>
 
@@ -137,7 +218,7 @@ export default function TradingDashboard() {
           {!isGrid ? (
             <div className="space-y-2.5">
               <div className="grid grid-cols-2 gap-2 text-xs">
-                {isProsumer && (
+                {(isProsumer || isSolarFarm) && (
                   <div className="glass-card p-2.5 rounded-xl border border-slate-800">
                     <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase">
                       <Sun className="w-3.5 h-3.5 text-amber-400" />
@@ -148,7 +229,11 @@ export default function TradingDashboard() {
                     </div>
                   </div>
                 )}
-                <div className={`glass-card p-2.5 rounded-xl border border-slate-800 ${!isProsumer ? 'col-span-2' : ''}`}>
+                <div
+                  className={`glass-card p-2.5 rounded-xl border border-slate-800 ${
+                    !isProsumer && !isSolarFarm ? 'col-span-2' : ''
+                  }`}
+                >
                   <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase">
                     <Zap className="w-3.5 h-3.5 text-orange-400" />
                     <span>Instant Load</span>
@@ -163,17 +248,25 @@ export default function TradingDashboard() {
               <div className="glass-card p-3 rounded-xl border border-slate-800 space-y-1.5">
                 <div className="flex justify-between items-center text-xs">
                   <div className="flex items-center space-x-1.5 text-slate-300 font-medium">
-                    <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
+                    <BatteryCharging
+                      className={`w-3.5 h-3.5 ${
+                        isBESS ? 'text-purple-400' : isSolarFarm ? 'text-amber-400' : 'text-emerald-400'
+                      }`}
+                    />
                     <span>Battery State of Charge</span>
                   </div>
-                  <span className="font-mono font-bold text-emerald-300">
+                  <span className="font-mono font-bold text-slate-200">
                     {batteryPercent}% ({selectedNode.battery}/{selectedNode.maxBattery} kWh)
                   </span>
                 </div>
                 <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
                   <div
                     className={`h-full transition-all duration-500 rounded-full ${
-                      batteryPercent > 60
+                      isBESS
+                        ? 'bg-gradient-to-r from-purple-500 to-indigo-400'
+                        : isSolarFarm
+                        ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
+                        : batteryPercent > 60
                         ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
                         : batteryPercent > 30
                         ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
@@ -203,7 +296,7 @@ export default function TradingDashboard() {
             </div>
           )}
 
-          {/* Algorithm & Strategy Customizer */}
+          {/* Autonomous Policy & Strategy Customizer */}
           {!isGrid && (
             <form onSubmit={handleSaveStrategy} className="glass-card p-3.5 rounded-xl border border-slate-800 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
@@ -214,11 +307,13 @@ export default function TradingDashboard() {
                 <span className="text-[10px] text-cyan-400 font-mono">Live Tune</span>
               </div>
 
-              <div className="text-[11px] text-slate-400 italic bg-slate-900/50 p-2 rounded-lg border border-slate-800">
-                "{selectedNode.strategy}"
-              </div>
+              {selectedNode.strategy && (
+                <div className="text-[11px] text-slate-400 italic bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+                  "{selectedNode.strategy}"
+                </div>
+              )}
 
-              {isProsumer && (
+              {(isProsumer || isSolarFarm) && (
                 <div className="space-y-3 pt-1">
                   <div>
                     <div className="flex justify-between text-xs text-slate-300 mb-1">
@@ -238,7 +333,7 @@ export default function TradingDashboard() {
 
                   <div>
                     <div className="flex justify-between text-xs text-slate-300 mb-1">
-                      <span>Target Sell Price:</span>
+                      <span>Target Ask Price:</span>
                       <span className="font-mono text-emerald-400 font-bold">${targetSellPrice}/kWh</span>
                     </div>
                     <input
@@ -274,6 +369,42 @@ export default function TradingDashboard() {
                 </div>
               )}
 
+              {isBESS && (
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <div className="flex justify-between text-xs text-slate-300 mb-1">
+                      <span>Charge Below (Buy Limit):</span>
+                      <span className="font-mono text-cyan-400 font-bold">${chargeThresholdPrice}/kWh</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.08"
+                      max="0.20"
+                      step="0.01"
+                      value={chargeThresholdPrice}
+                      onChange={(e) => setChargeThresholdPrice(e.target.value)}
+                      className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs text-slate-300 mb-1">
+                      <span>Discharge Above (Sell Trigger):</span>
+                      <span className="font-mono text-purple-400 font-bold">${dischargeThresholdPrice}/kWh</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.18"
+                      max="0.35"
+                      step="0.01"
+                      value={dischargeThresholdPrice}
+                      onChange={(e) => setDischargeThresholdPrice(e.target.value)}
+                      className="w-full accent-purple-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
                 className="w-full mt-2 py-2 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-cyan-900/30"
@@ -281,23 +412,26 @@ export default function TradingDashboard() {
                 {savedAlert ? (
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Policy Updated!</span>
+                    <span>Policy Parameters Applied!</span>
                   </>
                 ) : (
                   <>
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Apply Strategy Parameters</span>
+                    <span>Update Agent Policy</span>
                   </>
                 )}
               </button>
             </form>
           )}
 
-          {/* Recent Trades by this Agent */}
+          {/* Signed Cryptographic Trade History */}
           <div className="space-y-2">
-            <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-300">
-              <History className="w-3.5 h-3.5 text-slate-400" />
-              <span>Agent Trade History</span>
+            <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+              <span className="flex items-center space-x-1.5">
+                <History className="w-3.5 h-3.5 text-slate-400" />
+                <span>Signed Trade History</span>
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">secp256k1</span>
             </div>
 
             {selectedNode.history && selectedNode.history.length > 0 ? (
@@ -319,7 +453,9 @@ export default function TradingDashboard() {
                           <div className="font-medium text-slate-200">
                             {isBuyer ? `Bought from ${tx.sellerName}` : `Sold to ${tx.buyerName}`}
                           </div>
-                          <div className="text-[9px] text-slate-500 font-mono">{tx.timestamp}</div>
+                          <div className="text-[9px] text-cyan-400/80 font-mono">
+                            {tx.txHash ? `${tx.txHash.slice(0, 10)}...` : tx.timestamp}
+                          </div>
                         </div>
                       </div>
                       <div className="text-right font-mono">
@@ -341,9 +477,9 @@ export default function TradingDashboard() {
         </div>
       </div>
 
-      {/* Footer Node Switcher */}
+      {/* Footer Node Quick Switcher */}
       <div className="p-3 border-t border-slate-800/80 bg-slate-950/60">
-        <div className="text-[10px] text-slate-400 mb-1.5 uppercase font-mono">Quick Switch Node:</div>
+        <div className="text-[10px] text-slate-400 mb-1.5 uppercase font-mono">Quick Switch Agent:</div>
         <div className="flex space-x-1.5 overflow-x-auto pb-1">
           {nodes.map((n) => (
             <button

@@ -2,7 +2,8 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import { SimulationEngine } from './engine/simulationEngine.js';
+import { nodeFactory } from './agents/NodeFactory.js';
+import { marketEngine } from './engine/marketEngine.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,97 +19,129 @@ const io = new Server(server, {
   }
 });
 
-const engine = new SimulationEngine();
+// Bootstrap initial smart grid edge agents
+nodeFactory.bootstrapDefaultGrid();
 
-// REST Endpoints
+// ==========================================
+// REST API ENDPOINTS
+// ==========================================
+
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'online',
-    isPaused: engine.isPaused,
-    tickCount: engine.tickCount,
-    marketStats: engine.marketStats,
-    weather: engine.weather,
-    demandScenario: engine.demandScenario
+    isPaused: marketEngine.isPaused,
+    tickCount: marketEngine.tickCount,
+    marketStats: marketEngine.marketStats,
+    weather: marketEngine.weather,
+    demandScenario: marketEngine.demandScenario
   });
 });
 
+app.get('/api/grid/nodes', (req, res) => {
+  res.json({ nodes: nodeFactory.getAllTelemetry() });
+});
+
+/**
+ * Dynamic Node Injection Endpoint
+ * Spawns an autonomous EdgeAgent instance with cryptographic wallet
+ */
+app.post('/api/grid/nodes', (req, res) => {
+  try {
+    const { name, category, maxBattery, battery, baseSolar, baseLoad, minBatteryReserve, targetSellPrice, maxBuyPrice, position } = req.body;
+
+    if (!name || !category) {
+      return res.status(400).json({ error: 'Name and Category are required' });
+    }
+
+    const agentId = `${category.toLowerCase()}-${Date.now().toString().slice(-4)}`;
+    const randomOffset = (Math.random() * 80) - 40;
+
+    const newAgent = nodeFactory.createAgent({
+      id: agentId,
+      name,
+      category,
+      type: `${category}Node`,
+      battery: Number(battery || (maxBattery ? maxBattery * 0.6 : 30)),
+      maxBattery: Number(maxBattery || 50),
+      baseSolar: Number(baseSolar || 0),
+      baseLoad: Number(baseLoad || 5),
+      minBatteryReserve: Number(minBatteryReserve || 40),
+      targetSellPrice: Number(targetSellPrice || 0.15),
+      maxBuyPrice: Number(maxBuyPrice || 0.25),
+      position: position || { x: 450 + randomOffset, y: 350 + randomOffset }
+    });
+
+    const agentData = newAgent.toJSON();
+
+    // Broadcast node_spawned event
+    io.emit('node_spawned', agentData);
+    io.emit('grid-update', marketEngine.getState());
+
+    return res.status(201).json({
+      success: true,
+      message: `Autonomous EdgeAgent '${name}' created successfully with Ethereum wallet`,
+      node: agentData
+    });
+  } catch (err) {
+    console.error('[API] Error creating agent:', err);
+    return res.status(500).json({ error: 'Failed to create EdgeAgent: ' + err.message });
+  }
+});
+
 app.post('/api/control/pause', (req, res) => {
-  const isPaused = engine.togglePause();
-  io.emit('grid-update', engine.tick());
+  const isPaused = marketEngine.togglePause();
+  io.emit('grid-update', marketEngine.getState());
   res.json({ isPaused });
 });
 
 app.post('/api/control/weather', (req, res) => {
   const { weather } = req.body;
   if (weather) {
-    engine.setWeather(weather);
-    io.emit('grid-update', engine.tick());
+    marketEngine.setWeather(weather);
+    io.emit('grid-update', marketEngine.getState());
   }
-  res.json({ weather: engine.weather });
+  res.json({ weather: marketEngine.weather });
 });
 
 app.post('/api/control/demand', (req, res) => {
   const { demandScenario } = req.body;
   if (demandScenario) {
-    engine.setDemandScenario(demandScenario);
-    io.emit('grid-update', engine.tick());
+    marketEngine.setDemandScenario(demandScenario);
+    io.emit('grid-update', marketEngine.getState());
   }
-  res.json({ demandScenario: engine.demandScenario });
+  res.json({ demandScenario: marketEngine.demandScenario });
 });
 
-// Socket.io Connection & Handlers
+// ==========================================
+// SOCKET.IO REAL-TIME EVENT HANDLERS
+// ==========================================
+
 io.on('connection', (socket) => {
   console.log(`[Socket] Client connected: ${socket.id}`);
 
-  // Send initial state immediately on connection
-  socket.emit('grid-update', {
-    nodes: engine.nodes,
-    transactions: engine.transactions,
-    activeTrades: engine.activeTrades,
-    marketStats: engine.marketStats,
-    weather: engine.weather,
-    demandScenario: engine.demandScenario,
-    isPaused: engine.isPaused,
-    tickCount: engine.tickCount
-  });
+  // Send full current grid state immediately
+  socket.emit('grid-update', marketEngine.getState());
 
   socket.on('toggle-pause', () => {
-    engine.togglePause();
-    io.emit('grid-update', {
-      nodes: engine.nodes,
-      transactions: engine.transactions,
-      activeTrades: engine.activeTrades,
-      marketStats: engine.marketStats,
-      weather: engine.weather,
-      demandScenario: engine.demandScenario,
-      isPaused: engine.isPaused,
-      tickCount: engine.tickCount
-    });
+    marketEngine.togglePause();
+    io.emit('grid-update', marketEngine.getState());
   });
 
   socket.on('set-weather', (weather) => {
-    engine.setWeather(weather);
-    io.emit('grid-update', engine.tick());
+    marketEngine.setWeather(weather);
+    io.emit('grid-update', marketEngine.getState());
   });
 
   socket.on('set-demand', (scenario) => {
-    engine.setDemandScenario(scenario);
-    io.emit('grid-update', engine.tick());
+    marketEngine.setDemandScenario(scenario);
+    io.emit('grid-update', marketEngine.getState());
   });
 
   socket.on('update-node-strategy', ({ nodeId, settings }) => {
-    const updatedNode = engine.updateNodeStrategy(nodeId, settings);
-    if (updatedNode) {
-      io.emit('grid-update', {
-        nodes: engine.nodes,
-        transactions: engine.transactions,
-        activeTrades: engine.activeTrades,
-        marketStats: engine.marketStats,
-        weather: engine.weather,
-        demandScenario: engine.demandScenario,
-        isPaused: engine.isPaused,
-        tickCount: engine.tickCount
-      });
+    const agent = nodeFactory.getAgent(nodeId);
+    if (agent) {
+      agent.updateSettings(settings);
+      io.emit('grid-update', marketEngine.getState());
     }
   });
 
@@ -117,13 +150,12 @@ io.on('connection', (socket) => {
   });
 });
 
-// 3-second simulation market tick
-const TICK_INTERVAL_MS = 3000;
+// Relay synchronized grid telemetry at 2-second heartbeat
+const HEARTBEAT_INTERVAL_MS = 2000;
 setInterval(() => {
-  const payload = engine.tick();
-  io.emit('grid-update', payload);
-}, TICK_INTERVAL_MS);
+  io.emit('grid-update', marketEngine.getState());
+}, HEARTBEAT_INTERVAL_MS);
 
 server.listen(PORT, () => {
-  console.log(`⚡ Smart Grid Market Engine server running on http://localhost:${PORT}`);
+  console.log(`⚡ Decentralized Smart Grid Market Engine running on http://localhost:${PORT}`);
 });

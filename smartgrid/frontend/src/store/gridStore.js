@@ -20,23 +20,46 @@ export const useGridStore = create((set, get) => {
     set({ isConnected: false });
   });
 
+  socket.on('node_spawned', (newNode) => {
+    set((state) => {
+      const exists = state.nodes.some((n) => n.id === newNode.id);
+      if (exists) return state;
+      return {
+        nodes: [...state.nodes, newNode]
+      };
+    });
+  });
+
   socket.on('grid-update', (data) => {
-    set((state) => ({
-      nodes: data.nodes || state.nodes,
-      transactions: data.transactions || state.transactions,
-      activeTrades: data.activeTrades || [],
-      marketStats: data.marketStats || state.marketStats,
-      weather: data.weather || state.weather,
-      demandScenario: data.demandScenario || state.demandScenario,
-      isPaused: typeof data.isPaused === 'boolean' ? data.isPaused : state.isPaused,
-      tickCount: data.tickCount || state.tickCount
-    }));
+    set((state) => {
+      // Merge updated telemetry into existing node objects while preserving user drag positions
+      const updatedNodes = (data.nodes || state.nodes).map((incoming) => {
+        const existing = state.nodes.find((n) => n.id === incoming.id);
+        const position = state.nodePositions[incoming.id] || existing?.position || incoming.position || { x: 300, y: 300 };
+        return {
+          ...incoming,
+          position
+        };
+      });
+
+      return {
+        nodes: updatedNodes,
+        transactions: data.transactions || state.transactions,
+        activeTrades: data.activeTrades || [],
+        marketStats: data.marketStats || state.marketStats,
+        weather: data.weather || state.weather,
+        demandScenario: data.demandScenario || state.demandScenario,
+        isPaused: typeof data.isPaused === 'boolean' ? data.isPaused : state.isPaused,
+        tickCount: data.tickCount || state.tickCount
+      };
+    });
   });
 
   return {
     socket,
     isConnected: false,
     nodes: [],
+    nodePositions: {},
     transactions: [],
     activeTrades: [],
     marketStats: {
@@ -45,7 +68,8 @@ export const useGridStore = create((set, get) => {
       totalP2PValueUsd: 0,
       cleanEnergyRatio: 100,
       activeTradesCount: 0,
-      gridLoadKwh: 0
+      gridLoadKwh: 0,
+      verifiedSignaturesCount: 0
     },
     weather: 'Sunny',
     demandScenario: 'Normal',
@@ -55,6 +79,18 @@ export const useGridStore = create((set, get) => {
 
     // Actions
     setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+
+    updateNodePosition: (nodeId, position) => {
+      set((state) => ({
+        nodePositions: {
+          ...state.nodePositions,
+          [nodeId]: position
+        },
+        nodes: state.nodes.map((n) =>
+          n.id === nodeId ? { ...n, position } : n
+        )
+      }));
+    },
 
     togglePause: () => {
       socket.emit('toggle-pause');
@@ -70,6 +106,26 @@ export const useGridStore = create((set, get) => {
 
     updateNodeStrategy: (nodeId, settings) => {
       socket.emit('update-node-strategy', { nodeId, settings });
+    },
+
+    spawnNode: async (nodeData) => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/grid/nodes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(nodeData)
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to spawn node');
+        }
+        return result;
+      } catch (err) {
+        console.error('[Store] spawnNode error:', err);
+        throw err;
+      }
     }
   };
 });
