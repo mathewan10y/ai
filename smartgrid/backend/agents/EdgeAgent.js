@@ -1,18 +1,16 @@
 import { ethers } from 'ethers';
 import { eventBroker } from '../engine/eventBroker.js';
+import { QLearningBrain } from './QLearningBrain.js';
 
 /**
- * Base Autonomous Edge Agent class.
- * Runs an independent internal execution loop with micro-jitter,
- * maintains an autonomous Ethers.js cryptographic wallet identity,
- * and signs trading orders with secp256k1 keys before broadcasting to the broker.
+ * Autonomous Edge Agent with an independent Q-Learning Brain and Ethers.js Wallet
  */
 export class EdgeAgent {
   constructor(config = {}) {
     this.id = config.id || `agent-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     this.name = config.name || 'Autonomous Edge Agent';
-    this.type = config.type || 'EdgeNode';
-    this.category = config.category || 'Edge';
+    this.type = config.type || 'ProsumerNode';
+    this.category = config.category || 'Prosumer';
     this.position = config.position || { x: 300, y: 300 };
 
     // Cryptographic Wallet Identity (Ethers.js)
@@ -24,14 +22,32 @@ export class EdgeAgent {
     this.address = this.wallet.address;
     this.privateKey = this.wallet.privateKey;
 
-    // Financials & Energy
+    // Financials & Balances
     this.walletBalance = typeof config.walletBalance === 'number' ? config.walletBalance : 500.00;
-    this.battery = typeof config.battery === 'number' ? config.battery : 25.0;
-    this.maxBattery = typeof config.maxBattery === 'number' ? config.maxBattery : 50.0;
-    this.solarGeneration = 0.0;
-    this.loadConsumption = 0.0;
+
+    // Battery / Storage Configuration
+    this.maxBatteryKWh = typeof config.maxBattery === 'number' ? config.maxBattery : (typeof config.maxBatteryKWh === 'number' ? config.maxBatteryKWh : 50.0);
+    this.hasBattery = this.maxBatteryKWh > 0;
+    this.batteryKWh = this.hasBattery
+      ? (typeof config.battery === 'number' ? config.battery : (typeof config.batteryKWh === 'number' ? config.batteryKWh : this.maxBatteryKWh * 0.6))
+      : 0;
+
+    // Generation & Load Configuration
+    this.baseGenKW = typeof config.baseSolar === 'number' ? config.baseSolar : (typeof config.baseGenKW === 'number' ? config.baseGenKW : 0);
+    this.baseLoadKW = typeof config.baseLoad === 'number' ? config.baseLoad : (typeof config.baseLoadKW === 'number' ? config.baseLoadKW : 4.0);
+    this.currentGenKW = 0.0;
+    this.currentLoadKW = 0.0;
+    this.deferrableLoadKWh = typeof config.deferrableLoadKWh === 'number' ? config.deferrableLoadKWh : (this.category === 'Consumer' ? 12.0 : 4.0);
+    this.curtailed = false;
+
+    // Trading Strategy Thresholds & RL Diagnostics
     this.tradingStatus = 'Idle';
-    this.strategy = config.strategy || 'Autonomous Edge Optimization';
+    this.currentAction = 'HOLD';
+    this.isExploration = false;
+    this.qValues = [];
+    this.stateKey = 'BALANCED|NO_BATTERY|MID|TASK_DONE';
+    this.prevStateKey = null;
+    this.prevAction = null;
     this.history = config.history || [];
 
     // Environmental state
@@ -39,30 +55,32 @@ export class EdgeAgent {
     this.demandScenario = 'Normal';
     this.isPaused = false;
     this.spotPrice = 0.18;
+    this.retailGridPrice = 0.32;
 
-    // Internal independent physics loop config
+    // Independent Q-Learning Brain
+    this.brain = new QLearningBrain({
+      alpha: 0.1,
+      gamma: 0.9,
+      epsilon: typeof config.epsilon === 'number' ? config.epsilon : 0.25,
+      epsilonDecay: 0.995
+    });
+
+    // Independent Timer configuration
     this.isRunning = false;
-    this.baseIntervalMs = config.baseIntervalMs || 2800;
+    this.baseIntervalMs = config.baseIntervalMs || 2600;
     this.timerId = null;
     this.nonce = 0;
+    this.lastSettlementTimestamp = 0;
+    this.tradeCooldownMs = 2000;
 
-    // Listen to broker events
     this.setupBrokerSubscriptions();
   }
 
   setupBrokerSubscriptions() {
-    this._onWeather = (weather) => {
-      this.weather = weather;
-    };
-    this._onDemand = (demand) => {
-      this.demandScenario = demand;
-    };
-    this._onPause = (isPaused) => {
-      this.isPaused = isPaused;
-    };
-    this._onSpotPrice = (price) => {
-      this.spotPrice = price;
-    };
+    this._onWeather = (weather) => { this.weather = weather; };
+    this._onDemand = (demand) => { this.demandScenario = demand; };
+    this._onPause = (isPaused) => { this.isPaused = isPaused; };
+    this._onSpotPrice = (price) => { this.spotPrice = price; };
     this._onSettled = (trade) => {
       if (trade.buyerId === this.id || trade.sellerId === this.id) {
         this.handleSettlement(trade);
@@ -102,8 +120,8 @@ export class EdgeAgent {
 
   scheduleNextTick() {
     if (!this.isRunning) return;
-    // Introduce ±400ms micro-jitter to model real asynchronous edge hardware
-    const jitter = (Math.random() * 800) - 400;
+    // Micro-jitter ±350ms to model real asynchronous edge computing
+    const jitter = (Math.random() * 700) - 350;
     const interval = Math.max(1200, this.baseIntervalMs + jitter);
 
     this.timerId = setTimeout(async () => {
@@ -120,21 +138,175 @@ export class EdgeAgent {
   }
 
   async tick() {
+    // 1. Update local physical generation & base load
     this.updatePhysics();
-    const order = await this.evaluateStrategy();
-    if (order) {
-      await this.signAndPublishOrder(order);
+
+    const netPowerKW = this.currentGenKW - this.currentLoadKW;
+
+    // 2. Discretize current state for Q-Learning
+    const currentStateKey = this.brain.discretizeState({
+      netPowerKW,
+      batteryKWh: this.batteryKWh,
+      maxBatteryKWh: this.maxBatteryKWh,
+      hasBattery: this.hasBattery,
+      spotPrice: this.spotPrice,
+      deferrableLoadKWh: this.deferrableLoadKWh
+    });
+
+    const validActions = this.brain.getValidActions({
+      hasBattery: this.hasBattery,
+      isSurplus: netPowerKW > 0.5,
+      deferrableLoadKWh: this.deferrableLoadKWh
+    });
+
+    // 3. Select action via Epsilon-Greedy policy
+    const decision = this.brain.selectAction(currentStateKey, validActions);
+    this.currentAction = decision.action;
+    this.isExploration = decision.isExploration;
+    this.stateKey = currentStateKey;
+    this.qValues = this.brain.getQValues(currentStateKey, validActions);
+
+    // 4. Execute physical and market actions based on RL decision
+    let immediateReward = 0;
+    let orderToSign = null;
+
+    switch (this.currentAction) {
+      case 'HOLD':
+        this.curtailed = false;
+        this.tradingStatus = this.hasBattery ? 'Holding' : 'Idle';
+        // If surplus solar, gently top up battery
+        if (this.hasBattery && netPowerKW > 0) {
+          this.batteryKWh = Math.min(this.maxBatteryKWh, Number((this.batteryKWh + netPowerKW * 0.2).toFixed(2)));
+        }
+        break;
+
+      case 'CHARGE_OPPORTUNISTIC':
+        this.curtailed = false;
+        if (this.hasBattery && this.batteryKWh < this.maxBatteryKWh) {
+          this.tradingStatus = 'Charging';
+          const neededKwh = Math.min(15.0, Number((this.maxBatteryKWh - this.batteryKWh).toFixed(2)));
+          if (neededKwh > 0.5) {
+            orderToSign = {
+              side: 'BID',
+              amountKwh: neededKwh,
+              priceLimit: Number(Math.min(0.24, this.spotPrice + 0.01).toFixed(3))
+            };
+          }
+        }
+        break;
+
+      case 'DISCHARGE_MAX_PROFIT':
+        this.curtailed = false;
+        if (this.hasBattery && this.batteryKWh > (this.maxBatteryKWh * 0.2)) {
+          this.tradingStatus = 'Discharging';
+          const surplusKwh = Number((this.batteryKWh - (this.maxBatteryKWh * 0.2)).toFixed(2));
+          const tradeVolume = Math.min(20.0, surplusKwh);
+          if (tradeVolume > 0.5) {
+            orderToSign = {
+              side: 'ASK',
+              amountKwh: tradeVolume,
+              priceLimit: Number(Math.max(0.10, this.spotPrice - 0.01).toFixed(3))
+            };
+          }
+        }
+        break;
+
+      case 'SHIFT_LOAD_ON':
+        this.curtailed = false;
+        this.tradingStatus = 'Absorbing Demand';
+        if (this.deferrableLoadKWh > 0) {
+          // Increase load consumption temporarily to consume cheap green energy
+          const consumedBatch = Math.min(3.0, this.deferrableLoadKWh);
+          this.currentLoadKW += 4.5;
+          this.deferrableLoadKWh = Math.max(0, Number((this.deferrableLoadKWh - consumedBatch).toFixed(2)));
+          // Positive reward for clearing deferrable tasks when market price is low/mid
+          immediateReward += (this.spotPrice < 0.18 ? 0.35 : 0.10);
+        }
+        break;
+
+      case 'SHIFT_LOAD_OFF':
+        this.curtailed = false;
+        this.tradingStatus = 'Shedding Load';
+        this.currentLoadKW = Math.max(0.5, Number((this.currentLoadKW * 0.65).toFixed(2)));
+        // Reward for avoiding peak pricing
+        if (this.spotPrice > 0.20) {
+          immediateReward += 0.30;
+        }
+        break;
+
+      case 'CURTAIL_SOLAR':
+        this.curtailed = true;
+        this.tradingStatus = 'Curtailed';
+        this.currentGenKW = 0; // Throttle inverter to zero export
+        // Penalty for wasting potential green solar generation
+        immediateReward -= 0.20;
+        break;
+
+      case 'MARKET_TAKER':
+      default:
+        this.curtailed = false;
+        if (netPowerKW < -0.5) {
+          this.tradingStatus = 'Buying';
+          const neededKwh = Math.abs(netPowerKW);
+          orderToSign = {
+            side: 'BID',
+            amountKwh: Number(neededKwh.toFixed(2)),
+            priceLimit: Number((this.retailGridPrice * 0.95).toFixed(3))
+          };
+        } else if (netPowerKW > 0.5) {
+          this.tradingStatus = 'Selling';
+          orderToSign = {
+            side: 'ASK',
+            amountKwh: Number(netPowerKW.toFixed(2)),
+            priceLimit: Number(Math.max(0.11, this.spotPrice).toFixed(3))
+          };
+        } else {
+          this.tradingStatus = 'Balanced';
+        }
+        break;
     }
+
+    // 5. Submit cryptographically signed order if market order was constructed and not on cooldown
+    const isCoolingDown = (Date.now() - this.lastSettlementTimestamp) < this.tradeCooldownMs;
+    if (orderToSign && orderToSign.amountKwh > 0.2 && !isCoolingDown) {
+      await this.signAndPublishOrder(orderToSign);
+    }
+
+    // 6. Learn from state transition and immediate reward
+    if (this.prevStateKey && this.prevAction) {
+      this.brain.learn(this.prevStateKey, this.prevAction, immediateReward, currentStateKey, validActions);
+    }
+    this.prevStateKey = currentStateKey;
+    this.prevAction = this.currentAction;
+
+    // 7. Broadcast telemetry
     this.publishTelemetry();
   }
 
   updatePhysics() {
-    // Implemented by subclasses
-  }
+    let solarMultiplier = 1.0;
+    if (this.weather === 'Sunny') solarMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
+    else if (this.weather === 'Cloudy') solarMultiplier = 0.45 + (Math.random() * 0.15);
+    else if (this.weather === 'Solar Surge') solarMultiplier = 1.65 + (Math.random() * 0.3);
 
-  async evaluateStrategy() {
-    // Implemented by subclasses - returns order payload or null
-    return null;
+    let demandMultiplier = 1.0;
+    if (this.demandScenario === 'Normal') demandMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
+    else if (this.demandScenario === 'Peak Surge') demandMultiplier = 1.55 + (Math.random() * 0.35);
+
+    if (this.baseGenKW > 0) {
+      const genJitter = (Math.random() * 0.8) - 0.4;
+      this.currentGenKW = Math.max(0, Number((this.baseGenKW * solarMultiplier + genJitter).toFixed(2)));
+    } else {
+      this.currentGenKW = 0;
+    }
+
+    const loadJitter = (Math.random() * 0.6) - 0.3;
+    this.currentLoadKW = Math.max(0.4, Number((this.baseLoadKW * demandMultiplier + loadJitter).toFixed(2)));
+
+    // Regenerate deferrable load periodically (e.g. new EV plug-in or washing cycle)
+    if (this.deferrableLoadKWh <= 0.5 && Math.random() < 0.15) {
+      this.deferrableLoadKWh = Number((5.0 + Math.random() * 10.0).toFixed(1));
+    }
   }
 
   /**
@@ -151,7 +323,6 @@ export class EdgeAgent {
       timestamp: Date.now()
     };
 
-    // Serialize deterministic string for cryptographic signing
     const messageToSign = JSON.stringify(orderData);
     const signature = await this.wallet.signMessage(messageToSign);
 
@@ -167,16 +338,37 @@ export class EdgeAgent {
   handleSettlement(trade) {
     const isBuyer = trade.buyerId === this.id;
     const isSeller = trade.sellerId === this.id;
+    let reward = 0;
 
     if (isBuyer) {
       this.walletBalance = Number((this.walletBalance - trade.totalCost).toFixed(2));
-      this.battery = Math.min(this.maxBattery, Number((this.battery + trade.amountKwh * 0.4).toFixed(2)));
+      if (this.hasBattery) {
+        this.batteryKWh = Math.min(this.maxBatteryKWh, Number((this.batteryKWh + trade.amountKwh * 0.4).toFixed(2)));
+      }
+      // Reward = Cost savings vs Utility Grid retail tariff
+      const avoidedGridCost = trade.amountKwh * this.retailGridPrice;
+      const savings = avoidedGridCost - trade.totalCost;
+      reward = Number((savings * 1.5).toFixed(3)); // Positive reinforcement for cheap green imports
     } else if (isSeller) {
       this.walletBalance = Number((this.walletBalance + trade.totalCost).toFixed(2));
-      this.battery = Math.max(0, Number((this.battery - trade.amountKwh * 0.4).toFixed(2)));
+      if (this.hasBattery) {
+        this.batteryKWh = Math.max(0, Number((this.batteryKWh - trade.amountKwh * 0.4).toFixed(2)));
+      }
+      // Reward = P2P revenue earned
+      reward = Number((trade.totalCost * 1.2).toFixed(3));
     }
 
-    // Append to local audit ledger
+    // Trigger Bellman learning update upon market settlement
+    if (this.stateKey && this.currentAction) {
+      const validActions = this.brain.getValidActions({
+        hasBattery: this.hasBattery,
+        isSurplus: (this.currentGenKW - this.currentLoadKW) > 0.5,
+        deferrableLoadKWh: this.deferrableLoadKWh
+      });
+      this.brain.learn(this.stateKey, this.currentAction, reward, this.stateKey, validActions);
+    }
+
+    this.lastSettlementTimestamp = Date.now();
     this.history = [trade, ...(this.history || [])].slice(0, 20);
     this.publishTelemetry();
   }
@@ -186,7 +378,10 @@ export class EdgeAgent {
   }
 
   updateSettings(newSettings) {
-    Object.assign(this, newSettings);
+    if (typeof newSettings.baseLoadKW === 'number') this.baseLoadKW = newSettings.baseLoadKW;
+    if (typeof newSettings.baseGenKW === 'number') this.baseGenKW = newSettings.baseGenKW;
+    if (typeof newSettings.epsilon === 'number') this.brain.epsilon = newSettings.epsilon;
+    if (newSettings.strategy) this.strategy = newSettings.strategy;
     this.publishTelemetry();
   }
 
@@ -199,15 +394,23 @@ export class EdgeAgent {
       position: this.position,
       address: this.address,
       walletBalance: this.walletBalance,
-      battery: this.battery,
-      maxBattery: this.maxBattery,
-      solarGeneration: this.solarGeneration,
-      loadConsumption: this.loadConsumption,
+      hasBattery: this.hasBattery,
+      battery: this.batteryKWh,
+      batteryKWh: this.batteryKWh,
+      maxBattery: this.maxBatteryKWh,
+      maxBatteryKWh: this.maxBatteryKWh,
+      solarGeneration: this.currentGenKW,
+      currentGenKW: this.currentGenKW,
+      loadConsumption: this.currentLoadKW,
+      currentLoadKW: this.currentLoadKW,
+      deferrableLoadKWh: this.deferrableLoadKWh,
+      curtailed: this.curtailed,
       tradingStatus: this.tradingStatus,
-      strategy: this.strategy,
-      minBatteryReserve: this.minBatteryReserve,
-      targetSellPrice: this.targetSellPrice,
-      maxBuyPrice: this.maxBuyPrice,
+      currentAction: this.currentAction,
+      isExploration: this.isExploration,
+      epsilon: this.brain.epsilon,
+      qValues: this.qValues,
+      stateKey: this.stateKey,
       stats: this.stats,
       history: this.history
     };
@@ -215,228 +418,7 @@ export class EdgeAgent {
 }
 
 /**
- * Prosumer Agent: Generates solar energy, supplies local home/office load,
- * and autonomically sells surplus energy above battery reserve threshold.
- */
-export class ProsumerAgent extends EdgeAgent {
-  constructor(config = {}) {
-    super({
-      ...config,
-      type: 'ProsumerNode',
-      category: 'Prosumer',
-      walletBalance: config.walletBalance ?? 350.00,
-      battery: config.battery ?? 35.0,
-      maxBattery: config.maxBattery ?? 50.0
-    });
-    this.baseSolar = config.baseSolar || (this.id === 'prosumer-1' ? 8.0 : this.id === 'prosumer-2' ? 16.5 : 25.0);
-    this.baseLoad = config.baseLoad || (this.id === 'prosumer-1' ? 2.2 : this.id === 'prosumer-2' ? 4.8 : 3.5);
-    this.minBatteryReserve = typeof config.minBatteryReserve === 'number' ? config.minBatteryReserve : 50;
-    this.targetSellPrice = typeof config.targetSellPrice === 'number' ? config.targetSellPrice : 0.15;
-  }
-
-  updatePhysics() {
-    let solarMultiplier = 1.0;
-    if (this.weather === 'Sunny') solarMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
-    else if (this.weather === 'Cloudy') solarMultiplier = 0.45 + (Math.random() * 0.15);
-    else if (this.weather === 'Solar Surge') solarMultiplier = 1.65 + (Math.random() * 0.3);
-
-    let demandMultiplier = 1.0;
-    if (this.demandScenario === 'Normal') demandMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
-    else if (this.demandScenario === 'Peak Surge') demandMultiplier = 1.5 + (Math.random() * 0.3);
-
-    const jitter = (Math.random() * 1.0 - 0.5);
-    this.solarGeneration = Math.max(0.2, Number((this.baseSolar * solarMultiplier + jitter).toFixed(2)));
-    this.loadConsumption = Math.max(0.4, Number((this.baseLoad * demandMultiplier + (Math.random() * 0.6 - 0.3)).toFixed(2)));
-
-    const netPower = this.solarGeneration - this.loadConsumption;
-    if (netPower > 0) {
-      this.battery = Math.min(this.maxBattery, Number((this.battery + netPower * 0.25).toFixed(2)));
-    } else {
-      this.battery = Math.max(0, Number((this.battery + netPower * 0.25).toFixed(2)));
-    }
-  }
-
-  async evaluateStrategy() {
-    const reserveKwh = (this.minBatteryReserve / 100) * this.maxBattery;
-    const tradeableSurplus = Math.max(0, this.battery - reserveKwh);
-    const netInstant = this.solarGeneration - this.loadConsumption;
-
-    if (tradeableSurplus > 1.0 && netInstant > 0) {
-      this.tradingStatus = 'Selling';
-      return {
-        side: 'ASK',
-        amountKwh: Number(Math.min(tradeableSurplus, netInstant * 1.6).toFixed(2)),
-        priceLimit: Number(this.targetSellPrice.toFixed(3))
-      };
-    } else if (this.battery >= this.maxBattery * 0.95) {
-      this.tradingStatus = 'Feeding Grid';
-      return {
-        side: 'ASK',
-        amountKwh: Number((netInstant * 0.8).toFixed(2)),
-        priceLimit: 0.10
-      };
-    } else {
-      this.tradingStatus = 'Charging';
-      return null;
-    }
-  }
-}
-
-/**
- * Consumer Agent: Datacenters, EV charging hubs, residential districts.
- * Requires consistent power and issues signed BID orders to buy lowest-cost green energy.
- */
-export class ConsumerAgent extends EdgeAgent {
-  constructor(config = {}) {
-    super({
-      ...config,
-      type: 'ConsumerNode',
-      category: 'Consumer',
-      walletBalance: config.walletBalance ?? 1000.00,
-      battery: config.battery ?? 20.0,
-      maxBattery: config.maxBattery ?? 60.0
-    });
-    this.baseLoad = config.baseLoad || (this.id === 'consumer-1' ? 16.5 : this.id === 'consumer-2' ? 13.0 : 8.5);
-    this.maxBuyPrice = typeof config.maxBuyPrice === 'number' ? config.maxBuyPrice : 0.26;
-  }
-
-  updatePhysics() {
-    let demandMultiplier = 1.0;
-    if (this.demandScenario === 'Normal') demandMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
-    else if (this.demandScenario === 'Peak Surge') demandMultiplier = 1.6 + (Math.random() * 0.4);
-
-    this.solarGeneration = 0;
-    this.loadConsumption = Math.max(1.0, Number((this.baseLoad * demandMultiplier + (Math.random() * 1.5 - 0.75)).toFixed(2)));
-    this.battery = Math.max(1.5, Number((this.battery - this.loadConsumption * 0.2).toFixed(2)));
-  }
-
-  async evaluateStrategy() {
-    const neededKwh = Number((this.loadConsumption * 0.75 + Math.max(0, (this.maxBattery * 0.4 - this.battery))).toFixed(2));
-
-    if (neededKwh > 0.8) {
-      this.tradingStatus = 'Buying';
-      return {
-        side: 'BID',
-        amountKwh: neededKwh,
-        priceLimit: Number(this.maxBuyPrice.toFixed(3))
-      };
-    } else {
-      this.tradingStatus = 'Idle';
-      return null;
-    }
-  }
-}
-
-/**
- * SolarFarm Agent: High-capacity commercial solar array.
- * Dedicated wholesale green energy supplier.
- */
-export class SolarFarmAgent extends EdgeAgent {
-  constructor(config = {}) {
-    super({
-      ...config,
-      type: 'SolarFarmNode',
-      category: 'SolarFarm',
-      walletBalance: config.walletBalance ?? 2500.00,
-      battery: config.battery ?? 120.0,
-      maxBattery: config.maxBattery ?? 200.0
-    });
-    this.baseSolar = config.baseSolar || 65.0; // kW
-    this.baseLoad = config.baseLoad || 1.5; // kW
-    this.minBatteryReserve = typeof config.minBatteryReserve === 'number' ? config.minBatteryReserve : 30;
-    this.targetSellPrice = typeof config.targetSellPrice === 'number' ? config.targetSellPrice : 0.13;
-  }
-
-  updatePhysics() {
-    let solarMultiplier = 1.0;
-    if (this.weather === 'Sunny') solarMultiplier = 1.0 + (Math.random() * 0.25 - 0.1);
-    else if (this.weather === 'Cloudy') solarMultiplier = 0.4 + (Math.random() * 0.15);
-    else if (this.weather === 'Solar Surge') solarMultiplier = 1.7 + (Math.random() * 0.35);
-
-    this.solarGeneration = Math.max(2.0, Number((this.baseSolar * solarMultiplier + (Math.random() * 2.0 - 1.0)).toFixed(2)));
-    this.loadConsumption = Math.max(0.5, Number((this.baseLoad + (Math.random() * 0.4 - 0.2)).toFixed(2)));
-
-    const netPower = this.solarGeneration - this.loadConsumption;
-    if (netPower > 0) {
-      this.battery = Math.min(this.maxBattery, Number((this.battery + netPower * 0.2).toFixed(2)));
-    }
-  }
-
-  async evaluateStrategy() {
-    const surplus = this.solarGeneration - this.loadConsumption;
-    if (surplus > 2.0) {
-      this.tradingStatus = 'Selling';
-      return {
-        side: 'ASK',
-        amountKwh: Number((surplus * 0.9).toFixed(2)),
-        priceLimit: Number(this.targetSellPrice.toFixed(3))
-      };
-    }
-    this.tradingStatus = 'Charging';
-    return null;
-  }
-}
-
-/**
- * BESS Agent: Battery Energy Storage System.
- * Performs grid arbitrage (buys when spot price is cheap, sells when price surges).
- */
-export class BESSAgent extends EdgeAgent {
-  constructor(config = {}) {
-    super({
-      ...config,
-      type: 'BESSNode',
-      category: 'BESS',
-      walletBalance: config.walletBalance ?? 3000.00,
-      battery: config.battery ?? 80.0,
-      maxBattery: config.maxBattery ?? 150.0
-    });
-    this.chargeThresholdPrice = config.chargeThresholdPrice || 0.14; // Buy below this price
-    this.dischargeThresholdPrice = config.dischargeThresholdPrice || 0.22; // Sell above this price
-    this.minReserve = 20; // %
-  }
-
-  updatePhysics() {
-    // Parasitic cooling loss
-    this.solarGeneration = 0;
-    this.loadConsumption = Number((0.5 + Math.random() * 0.3).toFixed(2));
-    this.battery = Math.max(0, Number((this.battery - 0.05).toFixed(2)));
-  }
-
-  async evaluateStrategy() {
-    const socPercent = (this.battery / this.maxBattery) * 100;
-
-    // Price is high and we have stored charge -> Sell/Discharge
-    if (this.spotPrice >= this.dischargeThresholdPrice && socPercent > this.minReserve) {
-      this.tradingStatus = 'Discharging';
-      const dischargeAmount = Math.min(25.0, (this.battery - (this.minReserve / 100) * this.maxBattery));
-      return {
-        side: 'ASK',
-        amountKwh: Number(dischargeAmount.toFixed(2)),
-        priceLimit: Number(this.spotPrice.toFixed(3))
-      };
-    }
-
-    // Price is cheap and we have capacity -> Buy/Charge
-    if (this.spotPrice <= this.chargeThresholdPrice && socPercent < 90) {
-      this.tradingStatus = 'Charging';
-      const capacityAvailable = this.maxBattery - this.battery;
-      const chargeAmount = Math.min(20.0, capacityAvailable);
-      return {
-        side: 'BID',
-        amountKwh: Number(chargeAmount.toFixed(2)),
-        priceLimit: Number(this.chargeThresholdPrice.toFixed(3))
-      };
-    }
-
-    this.tradingStatus = 'Idle';
-    return null;
-  }
-}
-
-/**
- * GridAgent: Metro Substation / Utility Grid.
- * Base station fallback and grid telemetry aggregator.
+ * Utility Grid Substation Agent (Main Grid Node)
  */
 export class GridAgent extends EdgeAgent {
   constructor(config = {}) {
@@ -446,7 +428,10 @@ export class GridAgent extends EdgeAgent {
       name: config.name || 'Metro Substation Alpha',
       type: 'GridNode',
       category: 'UtilityGrid',
-      position: config.position || { x: 450, y: 240 }
+      position: config.position || { x: 450, y: 240 },
+      maxBattery: 0,
+      baseSolar: 0,
+      baseLoad: 0
     });
     this.capacity = config.capacity || 1000;
     this.currentDispatch = 24.5;
@@ -462,13 +447,7 @@ export class GridAgent extends EdgeAgent {
   }
 
   updatePhysics() {
-    // Grid stability slight variance
     this.stability = Number((99.7 + Math.random() * 0.25).toFixed(1));
-  }
-
-  async evaluateStrategy() {
-    // Utility grid does not submit speculative orders; it provides fallback liquidity in the matching engine
-    return null;
   }
 
   toJSON() {

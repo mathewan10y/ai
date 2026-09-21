@@ -47,7 +47,19 @@ app.get('/api/grid/nodes', (req, res) => {
  */
 app.post('/api/grid/nodes', (req, res) => {
   try {
-    const { name, category, maxBattery, battery, baseSolar, baseLoad, minBatteryReserve, targetSellPrice, maxBuyPrice, position } = req.body;
+    const {
+      name,
+      category,
+      hasBattery,
+      maxBattery,
+      batteryCapacity,
+      battery,
+      baseSolar,
+      maxGen,
+      baseLoad,
+      deferrableLoadKWh,
+      position
+    } = req.body;
 
     if (!name || !category) {
       return res.status(400).json({ error: 'Name and Category are required' });
@@ -56,18 +68,24 @@ app.post('/api/grid/nodes', (req, res) => {
     const agentId = `${category.toLowerCase()}-${Date.now().toString().slice(-4)}`;
     const randomOffset = (Math.random() * 80) - 40;
 
+    const batteryCap = (hasBattery === false || maxBattery === 0 || batteryCapacity === 0)
+      ? 0
+      : Number(maxBattery !== undefined ? maxBattery : (batteryCapacity !== undefined ? batteryCapacity : 50));
+
+    const initialBatt = batteryCap === 0
+      ? 0
+      : Number(battery !== undefined ? battery : batteryCap * 0.6);
+
     const newAgent = nodeFactory.createAgent({
       id: agentId,
       name,
       category,
       type: `${category}Node`,
-      battery: Number(battery || (maxBattery ? maxBattery * 0.6 : 30)),
-      maxBattery: Number(maxBattery || 50),
-      baseSolar: Number(baseSolar || 0),
-      baseLoad: Number(baseLoad || 5),
-      minBatteryReserve: Number(minBatteryReserve || 40),
-      targetSellPrice: Number(targetSellPrice || 0.15),
-      maxBuyPrice: Number(maxBuyPrice || 0.25),
+      maxBattery: batteryCap,
+      battery: initialBatt,
+      baseSolar: Number(baseSolar !== undefined ? baseSolar : (maxGen || 0)),
+      baseLoad: Number(baseLoad || 4.0),
+      deferrableLoadKWh: Number(deferrableLoadKWh || (category === 'Consumer' ? 10.0 : 3.0)),
       position: position || { x: 450 + randomOffset, y: 350 + randomOffset }
     });
 
@@ -86,6 +104,29 @@ app.post('/api/grid/nodes', (req, res) => {
     console.error('[API] Error creating agent:', err);
     return res.status(500).json({ error: 'Failed to create EdgeAgent: ' + err.message });
   }
+});
+
+/**
+ * Decommission / Delete Node Endpoint
+ */
+app.delete('/api/grid/nodes/:id', (req, res) => {
+  const { id } = req.params;
+  if (id === 'grid-main') {
+    return res.status(400).json({ error: 'Primary Utility Substation (grid-main) cannot be decommissioned.' });
+  }
+
+  const removed = nodeFactory.removeAgent(id);
+  if (!removed) {
+    return res.status(404).json({ error: `EdgeAgent with ID '${id}' not found.` });
+  }
+
+  io.emit('node_deleted', { id });
+  io.emit('grid-update', marketEngine.getState());
+
+  return res.json({
+    success: true,
+    message: `EdgeAgent '${id}' decommissioned and removed.`
+  });
 });
 
 app.post('/api/control/pause', (req, res) => {
@@ -141,6 +182,14 @@ io.on('connection', (socket) => {
     const agent = nodeFactory.getAgent(nodeId);
     if (agent) {
       agent.updateSettings(settings);
+      io.emit('grid-update', marketEngine.getState());
+    }
+  });
+
+  socket.on('delete-node', (nodeId) => {
+    if (nodeId && nodeId !== 'grid-main') {
+      nodeFactory.removeAgent(nodeId);
+      io.emit('node_deleted', { id: nodeId });
       io.emit('grid-update', marketEngine.getState());
     }
   });

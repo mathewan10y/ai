@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Building2, BatteryCharging, Zap, Wallet, ArrowDownLeft } from 'lucide-react';
+import { Building2, BatteryCharging, Zap, Wallet, ArrowDownLeft, Clock } from 'lucide-react';
 import { useGridStore } from '../../store/gridStore';
 
 const ConsumerNode = ({ id, data, selected }) => {
@@ -8,9 +8,13 @@ const ConsumerNode = ({ id, data, selected }) => {
   const selectedNodeId = useGridStore((state) => state.selectedNodeId);
   const isCurrentlySelected = selectedNodeId === id || selected;
 
-  const batteryPercent = Math.min(100, Math.round((data.battery / data.maxBattery) * 100));
-  const isBuying = data.tradingStatus === 'Buying';
-  const isGridFallback = data.tradingStatus === 'Grid Fallback';
+  const hasBattery = data.hasBattery !== false && data.maxBattery > 0;
+  const batteryPercent = hasBattery
+    ? Math.min(100, Math.round((data.battery / data.maxBattery) * 100))
+    : 0;
+
+  const isBuying = data.tradingStatus === 'Buying' || data.currentAction === 'CHARGE_OPPORTUNISTIC';
+  const isAbsorbing = data.currentAction === 'SHIFT_LOAD_ON';
 
   return (
     <div
@@ -18,10 +22,10 @@ const ConsumerNode = ({ id, data, selected }) => {
       className={`relative w-64 rounded-xl transition-all duration-300 cursor-pointer overflow-hidden backdrop-blur-md ${
         isCurrentlySelected
           ? 'ring-2 ring-orange-400 shadow-[0_0_25px_rgba(249,115,22,0.45)] bg-slate-900/90'
+          : isAbsorbing
+          ? 'border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.25)] bg-slate-900/80 hover:border-amber-400'
           : isBuying
           ? 'border border-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.2)] bg-slate-900/80 hover:border-orange-400'
-          : isGridFallback
-          ? 'border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.2)] bg-slate-900/80 hover:border-cyan-400'
           : 'border border-slate-700/60 bg-slate-900/75 hover:border-slate-500'
       }`}
     >
@@ -48,15 +52,15 @@ const ConsumerNode = ({ id, data, selected }) => {
         {/* Status Badge */}
         <div
           className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-            isBuying
+            isAbsorbing
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+              : isBuying
               ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40 animate-pulse'
-              : isGridFallback
-              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
               : 'bg-slate-800 text-slate-400 border border-slate-700'
           }`}
         >
-          <span className={`w-1.5 h-1.5 rounded-full ${isBuying ? 'bg-orange-400' : isGridFallback ? 'bg-cyan-400' : 'bg-slate-400'}`}></span>
-          <span>{data.tradingStatus}</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${isAbsorbing ? 'bg-amber-400' : isBuying ? 'bg-orange-400' : 'bg-slate-400'}`}></span>
+          <span>{data.currentAction || data.tradingStatus}</span>
         </div>
       </div>
 
@@ -68,47 +72,64 @@ const ConsumerNode = ({ id, data, selected }) => {
             <Zap className="w-4 h-4 text-orange-400" />
             <div>
               <div className="text-[9px] text-slate-400 uppercase tracking-wider">Demand Load</div>
-              <div className="font-mono font-bold text-orange-300 text-xs">{data.loadConsumption} <span className="text-[10px] font-normal text-slate-400">kW</span></div>
+              <div className="font-mono font-bold text-orange-300 text-xs">{data.loadConsumption || data.currentLoadKW} <span className="text-[10px] font-normal text-slate-400">kW</span></div>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-[9px] text-slate-400 uppercase tracking-wider">Max Bid</div>
-            <div className="font-mono text-slate-200 text-xs">${data.maxBuyPrice}/kWh</div>
-          </div>
+          {data.deferrableLoadKWh > 0 ? (
+            <div className="text-right">
+              <div className="text-[9px] text-cyan-400 uppercase tracking-wider flex items-center space-x-1">
+                <Clock className="w-2.5 h-2.5" />
+                <span>DR Task</span>
+              </div>
+              <div className="font-mono text-cyan-300 text-xs">{data.deferrableLoadKWh} kWh</div>
+            </div>
+          ) : (
+            <div className="text-right">
+              <div className="text-[9px] text-slate-400 uppercase tracking-wider">RL Policy</div>
+              <div className="font-mono text-slate-300 text-[10px]">Adaptive DR</div>
+            </div>
+          )}
         </div>
 
-        {/* Battery / Backup Buffer Bar */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[10px]">
-            <div className="flex items-center space-x-1 text-slate-300 font-medium">
-              <BatteryCharging className="w-3 h-3 text-orange-400" />
-              <span>Backup Buffer</span>
+        {/* Battery Bar if hasBattery */}
+        {hasBattery ? (
+          <div className="space-y-1">
+            <div className="flex justify-between items-center text-[10px]">
+              <div className="flex items-center space-x-1 text-slate-300 font-medium">
+                <BatteryCharging className="w-3 h-3 text-orange-400" />
+                <span>Backup Storage</span>
+              </div>
+              <span className="font-mono text-orange-300 font-bold">{batteryPercent}% ({data.battery}/{data.maxBattery} kWh)</span>
             </div>
-            <span className="font-mono text-orange-300 font-bold">{batteryPercent}% ({data.battery}/{data.maxBattery} kWh)</span>
+            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+              <div
+                className={`h-full transition-all duration-500 rounded-full ${
+                  batteryPercent > 50
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-400'
+                    : batteryPercent > 20
+                    ? 'bg-amber-500'
+                    : 'bg-rose-500'
+                }`}
+                style={{ width: `${batteryPercent}%` }}
+              />
+            </div>
           </div>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
-            <div
-              className={`h-full transition-all duration-500 rounded-full ${
-                batteryPercent > 50
-                  ? 'bg-gradient-to-r from-orange-500 to-amber-400'
-                  : batteryPercent > 20
-                  ? 'bg-amber-500'
-                  : 'bg-rose-500'
-              }`}
-              style={{ width: `${batteryPercent}%` }}
-            />
+        ) : (
+          <div className="p-1.5 rounded-lg bg-slate-800/30 border border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
+            <span>Direct Grid & DR Load</span>
+            <span className="text-cyan-400">Battery-less Node</span>
           </div>
-        </div>
+        )}
 
         {/* Footer Wallet */}
         <div className="flex items-center justify-between pt-1 text-[10px] border-t border-slate-800/60 font-mono">
           <div className="flex items-center space-x-1 text-slate-400">
             <Wallet className="w-3 h-3 text-slate-500" />
-            <span className="text-slate-200 font-bold">${data.walletBalance.toFixed(2)}</span>
+            <span className="text-slate-200 font-bold">${data.walletBalance ? data.walletBalance.toFixed(2) : '0.00'}</span>
           </div>
           <div className="text-slate-400 flex items-center space-x-0.5">
             <ArrowDownLeft className="w-3 h-3 text-orange-400" />
-            <span>P2P Buyer</span>
+            <span>Q-Learner</span>
           </div>
         </div>
       </div>

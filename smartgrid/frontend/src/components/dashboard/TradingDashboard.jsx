@@ -20,7 +20,15 @@ import {
   Layers,
   Home,
   Building2,
-  Radio
+  Radio,
+  Trash2,
+  AlertTriangle,
+  Loader2,
+  Brain,
+  Gauge,
+  Sparkles,
+  Clock,
+  Ban
 } from 'lucide-react';
 import { useGridStore } from '../../store/gridStore';
 
@@ -29,37 +37,29 @@ export default function TradingDashboard() {
   const selectedNodeId = useGridStore((state) => state.selectedNodeId);
   const setSelectedNodeId = useGridStore((state) => state.setSelectedNodeId);
   const updateNodeStrategy = useGridStore((state) => state.updateNodeStrategy);
+  const deleteNode = useGridStore((state) => state.deleteNode);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
-  // Local form state for algorithmic tuning
-  const [minReserve, setMinReserve] = useState(50);
-  const [targetSellPrice, setTargetSellPrice] = useState(0.15);
-  const [maxBuyPrice, setMaxBuyPrice] = useState(0.25);
-  const [chargeThresholdPrice, setChargeThresholdPrice] = useState(0.14);
-  const [dischargeThresholdPrice, setDischargeThresholdPrice] = useState(0.22);
-  const [savedAlert, setSavedAlert] = useState(false);
+  // Local state
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    if (selectedNode) {
-      if (selectedNode.minBatteryReserve !== undefined) setMinReserve(selectedNode.minBatteryReserve);
-      if (selectedNode.targetSellPrice !== undefined) setTargetSellPrice(selectedNode.targetSellPrice);
-      if (selectedNode.maxBuyPrice !== undefined) setMaxBuyPrice(selectedNode.maxBuyPrice);
-      if (selectedNode.chargeThresholdPrice !== undefined) setChargeThresholdPrice(selectedNode.chargeThresholdPrice);
-      if (selectedNode.dischargeThresholdPrice !== undefined) setDischargeThresholdPrice(selectedNode.dischargeThresholdPrice);
-    }
+    setConfirmDelete(false);
+    setIsDeleting(false);
   }, [selectedNode?.id]);
 
   if (!selectedNode) {
     return (
       <aside className="w-80 md:w-96 h-full glass-panel border-l border-slate-800/80 p-6 flex flex-col items-center justify-center text-center">
         <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/50 text-slate-400 mb-4 animate-bounce">
-          <Cpu className="w-8 h-8 text-cyan-400" />
+          <Brain className="w-8 h-8 text-cyan-400" />
         </div>
-        <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-1">Autonomous Agent Inspector</h3>
+        <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-1">Q-Learning Agent Panel</h3>
         <p className="text-xs text-slate-400 max-w-[250px]">
-          Click any Node on the energy grid to inspect its real-time telemetry, cryptographic Ethereum wallet, and trading policies.
+          Click any Node on the energy grid to inspect its real-time Tabular Q-Learning brain, Bellman values, and Ethereum wallet identity.
         </p>
       </aside>
     );
@@ -72,9 +72,13 @@ export default function TradingDashboard() {
   const isBESS = category === 'BESS';
   const isGrid = category === 'UtilityGrid' || category === 'Grid';
 
-  const batteryPercent = selectedNode.maxBattery
+  const hasBattery = selectedNode.hasBattery !== false && selectedNode.maxBattery > 0;
+  const batteryPercent = hasBattery
     ? Math.min(100, Math.round((selectedNode.battery / selectedNode.maxBattery) * 100))
-    : 100;
+    : 0;
+
+  const epsilon = typeof selectedNode.epsilon === 'number' ? selectedNode.epsilon : 0.25;
+  const exploitationPercent = Math.round((1 - epsilon) * 100);
 
   const handleCopyAddress = () => {
     if (selectedNode.address) {
@@ -84,29 +88,45 @@ export default function TradingDashboard() {
     }
   };
 
-  const handleSaveStrategy = (e) => {
-    e.preventDefault();
-    let settings = {};
-    if (isProsumer || isSolarFarm) {
-      settings = { minBatteryReserve: Number(minReserve), targetSellPrice: Number(targetSellPrice) };
-    } else if (isConsumer) {
-      settings = { maxBuyPrice: Number(maxBuyPrice) };
-    } else if (isBESS) {
-      settings = {
-        chargeThresholdPrice: Number(chargeThresholdPrice),
-        dischargeThresholdPrice: Number(dischargeThresholdPrice)
-      };
+  const handleDeleteAgent = async () => {
+    if (!selectedNode || isGrid) return;
+    setIsDeleting(true);
+    try {
+      await deleteNode(selectedNode.id);
+    } catch (err) {
+      console.error('Failed to delete node:', err);
+    } finally {
+      setIsDeleting(false);
+      setConfirmDelete(false);
     }
-
-    updateNodeStrategy(selectedNode.id, settings);
-    setSavedAlert(true);
-    setTimeout(() => setSavedAlert(false), 2000);
   };
 
   const formatAddress = (addr) => {
     if (!addr) return '0x000...0000';
     return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
   };
+
+  const getActionDetails = (action) => {
+    switch (action) {
+      case 'SHIFT_LOAD_ON':
+        return { label: 'SHIFT_LOAD_ON (Absorbing Surplus)', color: 'text-amber-300', bg: 'bg-amber-500/20 border-amber-500/40' };
+      case 'SHIFT_LOAD_OFF':
+        return { label: 'SHIFT_LOAD_OFF (Shedding Peak Load)', color: 'text-orange-300', bg: 'bg-orange-500/20 border-orange-500/40' };
+      case 'DISCHARGE_MAX_PROFIT':
+        return { label: 'DISCHARGE_MAX_PROFIT (P2P Arbitrage)', color: 'text-emerald-300', bg: 'bg-emerald-500/20 border-emerald-500/40' };
+      case 'CHARGE_OPPORTUNISTIC':
+        return { label: 'CHARGE_OPPORTUNISTIC (Grid Buffering)', color: 'text-cyan-300', bg: 'bg-cyan-500/20 border-cyan-500/40' };
+      case 'CURTAIL_SOLAR':
+        return { label: 'CURTAIL_SOLAR (Inverter Zero Export)', color: 'text-rose-300', bg: 'bg-rose-500/20 border-rose-500/40' };
+      case 'MARKET_TAKER':
+        return { label: 'MARKET_TAKER (Demand Coverage)', color: 'text-teal-300', bg: 'bg-teal-500/20 border-teal-500/40' };
+      case 'HOLD':
+      default:
+        return { label: 'HOLD (Local Microgrid Balance)', color: 'text-blue-300', bg: 'bg-blue-500/20 border-blue-500/40' };
+    }
+  };
+
+  const currentActionMeta = getActionDetails(selectedNode.currentAction);
 
   return (
     <aside className="w-80 md:w-96 h-full glass-panel border-l border-slate-800/80 flex flex-col justify-between overflow-y-auto z-20 transition-all duration-300">
@@ -135,7 +155,7 @@ export default function TradingDashboard() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-100 leading-none">{selectedNode.name}</h2>
-              <span className="text-[10px] font-mono text-slate-400">Agent ID: {selectedNode.id}</span>
+              <span className="text-[10px] font-mono text-slate-400">Node ID: {selectedNode.id}</span>
             </div>
           </div>
           <button
@@ -147,10 +167,10 @@ export default function TradingDashboard() {
         </div>
 
         {/* Category & Status Banner */}
-        <div className="px-4 py-2.5 bg-slate-950/40 border-b border-slate-800/60 flex items-center justify-between text-xs">
+        <div className="px-4 py-2 bg-slate-950/40 border-b border-slate-800/60 flex items-center justify-between text-xs">
           <span className="text-slate-400 font-medium">Archetype:</span>
           <span
-            className={`px-2 py-0.5 rounded-full font-mono text-[11px] font-bold ${
+            className={`px-2 py-0.5 rounded-full font-mono text-[10px] font-bold ${
               isProsumer
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 : isConsumer
@@ -162,13 +182,126 @@ export default function TradingDashboard() {
                 : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
             }`}
           >
-            {category}
+            {category} {hasBattery ? '• BESS Equipped' : '• Battery-less'}
           </span>
         </div>
 
-        {/* Live Telemetry Cards */}
+        {/* Live Diagnostics Container */}
         <div className="p-4 space-y-4">
-          {/* Blockchain Wallet Identity Card */}
+          {/* 1. Active RL Policy Badge */}
+          {!isGrid && (
+            <div className="glass-card p-3 rounded-xl border border-slate-800 space-y-2 bg-gradient-to-br from-slate-900/90 to-slate-950/90">
+              <div className="flex items-center justify-between text-xs">
+                <span className="flex items-center space-x-1.5 text-cyan-300 font-semibold">
+                  <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Active RL Policy</span>
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 flex items-center space-x-1">
+                  {selectedNode.isExploration ? (
+                    <span className="text-amber-400 flex items-center space-x-1">
+                      <Sparkles className="w-2.5 h-2.5" />
+                      <span>Exploring</span>
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 flex items-center space-x-1">
+                      <CheckCircle2 className="w-2.5 h-2.5" />
+                      <span>Exploiting</span>
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              <div className={`p-2.5 rounded-lg border text-xs font-mono font-bold flex items-center justify-between ${currentActionMeta.bg}`}>
+                <span className={currentActionMeta.color}>{currentActionMeta.label}</span>
+              </div>
+
+              {/* State Space Key Breakdown */}
+              {selectedNode.stateKey && (
+                <div className="pt-1">
+                  <div className="text-[9px] text-slate-500 uppercase font-mono mb-1">State Vector (S):</div>
+                  <div className="flex flex-wrap gap-1 font-mono text-[9px]">
+                    {selectedNode.stateKey.split('|').map((part, i) => (
+                      <span key={i} className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-cyan-300">
+                        {part}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 2. Exploration Rate (ε) & Q-Values Distribution */}
+          {!isGrid && (
+            <div className="glass-card p-3.5 rounded-xl border border-slate-800 space-y-3">
+              {/* Epsilon Decay Bar */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="flex items-center space-x-1 text-slate-300 font-medium">
+                    <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Exploration Rate (ε-decay)</span>
+                  </span>
+                  <span className="font-mono text-cyan-300 text-[11px] font-bold">
+                    ε = {epsilon.toFixed(3)} ({exploitationPercent}% Policy)
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                  <div
+                    className="h-full transition-all duration-500 rounded-full bg-gradient-to-r from-blue-500 via-teal-400 to-emerald-400"
+                    style={{ width: `${exploitationPercent}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Decisional Q-Values Mini-Bars */}
+              <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-300 font-medium text-[11px] uppercase tracking-wider">Decisional Q-Values</span>
+                  <span className="text-[9px] text-slate-500 font-mono">Bellman Q(s,a)</span>
+                </div>
+
+                {selectedNode.qValues && selectedNode.qValues.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {selectedNode.qValues.map((qv) => {
+                      const isChosen = qv.action === selectedNode.currentAction;
+                      const normalizedWidth = Math.max(8, Math.min(100, Math.round(((qv.qValue + 0.5) / 1.5) * 100)));
+
+                      return (
+                        <div key={qv.action} className="space-y-0.5">
+                          <div className="flex justify-between text-[10px] font-mono">
+                            <span className={isChosen ? 'text-cyan-300 font-bold' : 'text-slate-400'}>
+                              {qv.action} {isChosen ? '★' : ''}
+                            </span>
+                            <span className={qv.qValue >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                              {qv.qValue.toFixed(3)}
+                            </span>
+                          </div>
+                          <div className="w-full h-1 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                isChosen
+                                  ? 'bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)]'
+                                  : qv.qValue >= 0
+                                  ? 'bg-slate-600'
+                                  : 'bg-rose-500'
+                              }`}
+                              style={{ width: `${normalizedWidth}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-slate-500 font-mono text-center py-2">
+                    Learning state transitions...
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 3. Decentralized Identity & Wallet Card */}
           <div className="glass-card p-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950/90 space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span className="flex items-center space-x-1.5 text-cyan-300 font-medium">
@@ -201,7 +334,6 @@ export default function TradingDashboard() {
               </button>
             </div>
 
-            {/* Smart Wallet Balance */}
             <div className="pt-1 flex items-baseline justify-between">
               <span className="text-[11px] text-slate-400 flex items-center space-x-1">
                 <Wallet className="w-3 h-3 text-emerald-400" />
@@ -214,68 +346,69 @@ export default function TradingDashboard() {
             </div>
           </div>
 
-          {/* Energy & Battery Metrics */}
+          {/* 4. Physical & Storage Telemetry */}
           {!isGrid ? (
             <div className="space-y-2.5">
               <div className="grid grid-cols-2 gap-2 text-xs">
-                {(isProsumer || isSolarFarm) && (
-                  <div className="glass-card p-2.5 rounded-xl border border-slate-800">
-                    <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase">
-                      <Sun className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Solar Power</span>
-                    </div>
-                    <div className="mt-1 font-mono font-bold text-amber-300 text-base">
-                      {selectedNode.solarGeneration} <span className="text-xs text-slate-400">kW</span>
-                    </div>
+                <div className="glass-card p-2.5 rounded-xl border border-slate-800">
+                  <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase">
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Generation</span>
                   </div>
-                )}
-                <div
-                  className={`glass-card p-2.5 rounded-xl border border-slate-800 ${
-                    !isProsumer && !isSolarFarm ? 'col-span-2' : ''
-                  }`}
-                >
+                  <div className="mt-1 font-mono font-bold text-amber-300 text-base">
+                    {selectedNode.solarGeneration || 0} <span className="text-xs text-slate-400">kW</span>
+                  </div>
+                  {selectedNode.curtailed && (
+                    <div className="mt-1 text-[9px] text-rose-400 font-mono flex items-center space-x-1">
+                      <Ban className="w-2.5 h-2.5" />
+                      <span>Curtailed</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="glass-card p-2.5 rounded-xl border border-slate-800">
                   <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase">
                     <Zap className="w-3.5 h-3.5 text-orange-400" />
                     <span>Instant Load</span>
                   </div>
                   <div className="mt-1 font-mono font-bold text-slate-100 text-base">
-                    {selectedNode.loadConsumption} <span className="text-xs text-slate-400">kW</span>
+                    {selectedNode.loadConsumption || 0} <span className="text-xs text-slate-400">kW</span>
                   </div>
+                  {selectedNode.deferrableLoadKWh > 0 && (
+                    <div className="mt-1 text-[9px] text-cyan-400 font-mono flex items-center space-x-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      <span>{selectedNode.deferrableLoadKWh} kWh DR Task</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Battery Bar */}
-              <div className="glass-card p-3 rounded-xl border border-slate-800 space-y-1.5">
-                <div className="flex justify-between items-center text-xs">
-                  <div className="flex items-center space-x-1.5 text-slate-300 font-medium">
-                    <BatteryCharging
-                      className={`w-3.5 h-3.5 ${
-                        isBESS ? 'text-purple-400' : isSolarFarm ? 'text-amber-400' : 'text-emerald-400'
-                      }`}
-                    />
-                    <span>Battery State of Charge</span>
+              {/* Battery Bar (if battery-equipped) */}
+              {hasBattery && (
+                <div className="glass-card p-3 rounded-xl border border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <div className="flex items-center space-x-1.5 text-slate-300 font-medium">
+                      <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Battery Storage SoC</span>
+                    </div>
+                    <span className="font-mono font-bold text-slate-200">
+                      {batteryPercent}% ({selectedNode.battery}/{selectedNode.maxBattery} kWh)
+                    </span>
                   </div>
-                  <span className="font-mono font-bold text-slate-200">
-                    {batteryPercent}% ({selectedNode.battery}/{selectedNode.maxBattery} kWh)
-                  </span>
+                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                    <div
+                      className={`h-full transition-all duration-500 rounded-full ${
+                        batteryPercent > 60
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                          : batteryPercent > 30
+                          ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
+                          : 'bg-rose-500'
+                      }`}
+                      style={{ width: `${batteryPercent}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
-                  <div
-                    className={`h-full transition-all duration-500 rounded-full ${
-                      isBESS
-                        ? 'bg-gradient-to-r from-purple-500 to-indigo-400'
-                        : isSolarFarm
-                        ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
-                        : batteryPercent > 60
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                        : batteryPercent > 30
-                        ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
-                        : 'bg-rose-500'
-                    }`}
-                    style={{ width: `${batteryPercent}%` }}
-                  />
-                </div>
-              </div>
+              )}
             </div>
           ) : (
             <div className="space-y-2.5">
@@ -296,135 +429,57 @@ export default function TradingDashboard() {
             </div>
           )}
 
-          {/* Autonomous Policy & Strategy Customizer */}
+          {/* 5. Decommission Node (Delete) Action */}
           {!isGrid && (
-            <form onSubmit={handleSaveStrategy} className="glass-card p-3.5 rounded-xl border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-                <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-200">
-                  <Sliders className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Autonomous Policy</span>
-                </div>
-                <span className="text-[10px] text-cyan-400 font-mono">Live Tune</span>
-              </div>
-
-              {selectedNode.strategy && (
-                <div className="text-[11px] text-slate-400 italic bg-slate-900/50 p-2 rounded-lg border border-slate-800">
-                  "{selectedNode.strategy}"
-                </div>
-              )}
-
-              {(isProsumer || isSolarFarm) && (
-                <div className="space-y-3 pt-1">
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-300 mb-1">
-                      <span>Min Battery Reserve:</span>
-                      <span className="font-mono text-emerald-400 font-bold">{minReserve}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="20"
-                      max="90"
-                      step="5"
-                      value={minReserve}
-                      onChange={(e) => setMinReserve(e.target.value)}
-                      className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
+            <div className="glass-card p-3 rounded-xl border border-rose-900/40 bg-rose-950/10">
+              {!confirmDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  id="decommission-node-btn"
+                  className="w-full py-2 px-3 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Decommission Node</span>
+                </button>
+              ) : (
+                <div className="space-y-2 text-center animate-fadeIn">
+                  <div className="flex items-center justify-center space-x-1.5 text-rose-300 text-xs font-semibold">
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    <span>Decommission this Q-Learning Node?</span>
                   </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-300 mb-1">
-                      <span>Target Ask Price:</span>
-                      <span className="font-mono text-emerald-400 font-bold">${targetSellPrice}/kWh</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.08"
-                      max="0.30"
-                      step="0.01"
-                      value={targetSellPrice}
-                      onChange={(e) => setTargetSellPrice(e.target.value)}
-                      className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
+                  <p className="text-[10px] text-slate-400">
+                    Terminates the local RL loop, revokes active orders, and removes it from the grid network.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={handleDeleteAgent}
+                      className="py-1.5 px-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center justify-center space-x-1 transition-all disabled:opacity-50"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>Confirm Delete</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={() => setConfirmDelete(false)}
+                      className="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-all"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </div>
               )}
-
-              {isConsumer && (
-                <div className="space-y-3 pt-1">
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-300 mb-1">
-                      <span>Max Purchase Bid:</span>
-                      <span className="font-mono text-orange-400 font-bold">${maxBuyPrice}/kWh</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.10"
-                      max="0.35"
-                      step="0.01"
-                      value={maxBuyPrice}
-                      onChange={(e) => setMaxBuyPrice(e.target.value)}
-                      className="w-full accent-orange-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {isBESS && (
-                <div className="space-y-3 pt-1">
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-300 mb-1">
-                      <span>Charge Below (Buy Limit):</span>
-                      <span className="font-mono text-cyan-400 font-bold">${chargeThresholdPrice}/kWh</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.08"
-                      max="0.20"
-                      step="0.01"
-                      value={chargeThresholdPrice}
-                      onChange={(e) => setChargeThresholdPrice(e.target.value)}
-                      className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-300 mb-1">
-                      <span>Discharge Above (Sell Trigger):</span>
-                      <span className="font-mono text-purple-400 font-bold">${dischargeThresholdPrice}/kWh</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.18"
-                      max="0.35"
-                      step="0.01"
-                      value={dischargeThresholdPrice}
-                      onChange={(e) => setDischargeThresholdPrice(e.target.value)}
-                      className="w-full accent-purple-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full mt-2 py-2 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-cyan-900/30"
-              >
-                {savedAlert ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Policy Parameters Applied!</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Update Agent Policy</span>
-                  </>
-                )}
-              </button>
-            </form>
+            </div>
           )}
 
-          {/* Signed Cryptographic Trade History */}
+          {/* 6. Signed Cryptographic Trade History */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-bold text-slate-300">
               <span className="flex items-center space-x-1.5">
@@ -479,7 +534,7 @@ export default function TradingDashboard() {
 
       {/* Footer Node Quick Switcher */}
       <div className="p-3 border-t border-slate-800/80 bg-slate-950/60">
-        <div className="text-[10px] text-slate-400 mb-1.5 uppercase font-mono">Quick Switch Agent:</div>
+        <div className="text-[10px] text-slate-400 mb-1.5 uppercase font-mono">Quick Switch Node:</div>
         <div className="flex space-x-1.5 overflow-x-auto pb-1">
           {nodes.map((n) => (
             <button

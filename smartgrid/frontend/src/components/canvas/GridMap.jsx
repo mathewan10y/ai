@@ -106,7 +106,7 @@ export default function GridMap() {
     // 2. Active trade routes (P2P bilateral & Grid imports/feed-ins)
     activeTrades.forEach((trade) => {
       edges.push({
-        id: `active-${trade.source}-${trade.target}`,
+        id: trade.id || `active-${trade.source}-${trade.target}`,
         source: trade.source,
         target: trade.target,
         type: 'tradeEdge',

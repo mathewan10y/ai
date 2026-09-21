@@ -1,11 +1,4 @@
-import {
-  EdgeAgent,
-  ProsumerAgent,
-  ConsumerAgent,
-  SolarFarmAgent,
-  BESSAgent,
-  GridAgent
-} from './EdgeAgent.js';
+import { EdgeAgent, GridAgent } from './EdgeAgent.js';
 
 export class NodeFactory {
   constructor() {
@@ -13,39 +6,24 @@ export class NodeFactory {
   }
 
   /**
-   * Instantiate an autonomous EdgeAgent subclass based on category/type
+   * Instantiate an autonomous EdgeAgent with an independent QLearningBrain
    */
   createAgent(config = {}) {
     let agent;
     const category = config.category || config.type?.replace('Node', '') || 'Prosumer';
 
-    switch (category.toLowerCase()) {
-      case 'prosumer':
-        agent = new ProsumerAgent(config);
-        break;
-      case 'consumer':
-        agent = new ConsumerAgent(config);
-        break;
-      case 'solarfarm':
-      case 'solar_farm':
-      case 'solar':
-        agent = new SolarFarmAgent(config);
-        break;
-      case 'bess':
-      case 'battery':
-      case 'storage':
-        agent = new BESSAgent(config);
-        break;
-      case 'utilitygrid':
-      case 'grid':
-        agent = new GridAgent(config);
-        break;
-      default:
-        agent = new ProsumerAgent(config);
+    if (category.toLowerCase() === 'utilitygrid' || category.toLowerCase() === 'grid') {
+      agent = new GridAgent(config);
+    } else {
+      agent = new EdgeAgent({
+        ...config,
+        category,
+        type: `${category}Node`
+      });
     }
 
     this.agents.set(agent.id, agent);
-    // Start the agent's autonomous execution loop
+    // Start autonomous Q-Learning execution loop
     agent.start();
     return agent;
   }
@@ -82,7 +60,7 @@ export class NodeFactory {
     }
     this.agents.clear();
 
-    // 1. Metro Substation
+    // 1. Primary Utility Substation
     this.createAgent({
       id: 'grid-main',
       name: 'Metro Substation Alpha',
@@ -93,7 +71,7 @@ export class NodeFactory {
       position: { x: 450, y: 240 }
     });
 
-    // 2. Prosumer 1 - Solar Haven Villa
+    // 2. Prosumer 1 - Solar Haven Villa (Battery + Solar)
     this.createAgent({
       id: 'prosumer-1',
       name: 'Solar Haven Villa',
@@ -103,13 +81,11 @@ export class NodeFactory {
       baseSolar: 8.5,
       baseLoad: 2.1,
       walletBalance: 248.50,
-      minBatteryReserve: 55,
-      targetSellPrice: 0.16,
-      strategy: 'Sell surplus when battery > 55%',
+      deferrableLoadKWh: 3.5,
       position: { x: 120, y: 60 }
     });
 
-    // 3. Prosumer 2 - EcoRoof Residences
+    // 3. Prosumer 2 - EcoRoof Residences (Battery + Solar)
     this.createAgent({
       id: 'prosumer-2',
       name: 'EcoRoof Residences',
@@ -119,67 +95,63 @@ export class NodeFactory {
       baseSolar: 17.0,
       baseLoad: 5.2,
       walletBalance: 612.80,
-      minBatteryReserve: 50,
-      targetSellPrice: 0.14,
-      strategy: 'Aggressive P2P trade at battery > 50%',
+      deferrableLoadKWh: 6.0,
       position: { x: 780, y: 60 }
     });
 
-    // 4. Prosumer 3 - AgriSolar Microfarm
+    // 4. SolarFarm - Solaria Utility Array (Pure Generation + Buffer)
     this.createAgent({
-      id: 'prosumer-3',
-      name: 'AgriSolar Microfarm',
-      category: 'Prosumer',
-      battery: 92.0,
-      maxBattery: 120,
-      baseSolar: 27.5,
-      baseLoad: 3.8,
-      walletBalance: 1350.20,
-      minBatteryReserve: 40,
-      targetSellPrice: 0.13,
-      strategy: 'Bulk green power supplier (Min reserve 40%)',
+      id: 'solarfarm-1',
+      name: 'Solaria Utility Array',
+      category: 'SolarFarm',
+      battery: 80.0,
+      maxBattery: 150,
+      baseSolar: 55.0,
+      baseLoad: 1.2,
+      walletBalance: 2400.00,
+      deferrableLoadKWh: 0,
       position: { x: 100, y: 420 }
     });
 
-    // 5. Consumer 1 - Hypercharge EV Hub
+    // 5. Consumer 1 - Hypercharge EV Hub (Heavy Load + Deferrable EV Batches)
     this.createAgent({
       id: 'consumer-1',
       name: 'Hypercharge EV Hub',
       category: 'Consumer',
       battery: 14.2,
       maxBattery: 50,
+      baseSolar: 0,
       baseLoad: 17.2,
       walletBalance: 820.00,
-      maxBuyPrice: 0.28,
-      strategy: 'Prioritize lowest P2P solar before Utility Grid',
+      deferrableLoadKWh: 18.0,
       position: { x: 800, y: 420 }
     });
 
-    // 6. Consumer 2 - CyberTech Datacenter
+    // 6. Consumer 2 - CyberTech Datacenter (Continuous Industrial Load)
     this.createAgent({
       id: 'consumer-2',
       name: 'CyberTech Datacenter',
       category: 'Consumer',
       battery: 28.0,
       maxBattery: 60,
+      baseSolar: 0,
       baseLoad: 14.0,
       walletBalance: 1540.50,
-      maxBuyPrice: 0.26,
-      strategy: 'Maintain > 50% battery buffer via P2P green contracts',
+      deferrableLoadKWh: 8.0,
       position: { x: 450, y: 550 }
     });
 
-    // 7. Consumer 3 - Greenwood Smart District
+    // 7. BESS - Tesla Megapack Storage (Grid Arbitrage)
     this.createAgent({
-      id: 'consumer-3',
-      name: 'Greenwood Smart District',
-      category: 'Consumer',
-      battery: 9.5,
-      maxBattery: 35,
-      baseLoad: 8.2,
-      walletBalance: 390.40,
-      maxBuyPrice: 0.24,
-      strategy: 'Residential load aggregation, buy cheapest P2P',
+      id: 'bess-1',
+      name: 'Tesla Megapack Grid BESS',
+      category: 'BESS',
+      battery: 120.0,
+      maxBattery: 200,
+      baseSolar: 0,
+      baseLoad: 0.8,
+      walletBalance: 3200.00,
+      deferrableLoadKWh: 0,
       position: { x: 450, y: -40 }
     });
 

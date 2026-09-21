@@ -56,7 +56,7 @@ const ProsumerNode = ({ id, data, selected }) => {
           }`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${isSelling ? 'bg-emerald-400' : isFeedingGrid ? 'bg-amber-400' : 'bg-slate-400'}`}></span>
-          <span>{data.tradingStatus}</span>
+          <span>{data.currentAction || data.tradingStatus}</span>
         </div>
       </div>
 

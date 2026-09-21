@@ -11,7 +11,10 @@ import {
   Home,
   Building2,
   CheckCircle2,
-  Loader2
+  Loader2,
+  ToggleLeft,
+  ToggleRight,
+  Clock
 } from 'lucide-react';
 import { useGridStore } from '../../store/gridStore';
 
@@ -19,12 +22,12 @@ export default function AddNodeModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [category, setCategory] = useState('Prosumer');
   const [name, setName] = useState('');
-  const [battery, setBattery] = useState(40);
+  const [hasBattery, setHasBattery] = useState(true);
+  const [battery, setBattery] = useState(35);
   const [maxBattery, setMaxBattery] = useState(60);
   const [baseSolar, setBaseSolar] = useState(12);
   const [baseLoad, setBaseLoad] = useState(3.5);
-  const [targetSellPrice, setTargetSellPrice] = useState(0.14);
-  const [maxBuyPrice, setMaxBuyPrice] = useState(0.26);
+  const [deferrableLoadKWh, setDeferrableLoadKWh] = useState(4.0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -35,28 +38,36 @@ export default function AddNodeModal() {
     setCategory(cat);
     if (cat === 'Prosumer') {
       setName('SunPeak Residence');
-      setBaseSolar(12);
+      setHasBattery(true);
+      setBaseSolar(14);
       setBaseLoad(3.5);
       setMaxBattery(60);
       setBattery(35);
+      setDeferrableLoadKWh(4.0);
     } else if (cat === 'Consumer') {
-      setName('Nexus AI Datacenter');
+      setName('Nexus AI EV Datacenter');
+      setHasBattery(false); // Consumer can start battery-less for demand response
       setBaseSolar(0);
-      setBaseLoad(18);
-      setMaxBattery(50);
-      setBattery(15);
+      setBaseLoad(16);
+      setMaxBattery(0);
+      setBattery(0);
+      setDeferrableLoadKWh(14.0);
     } else if (cat === 'SolarFarm') {
-      setName('Solaria MegaFarm Phase 1');
-      setBaseSolar(75);
-      setBaseLoad(1.0);
+      setName('Solaria MegaFarm Phase 2');
+      setHasBattery(true);
+      setBaseSolar(80);
+      setBaseLoad(1.2);
       setMaxBattery(180);
       setBattery(100);
+      setDeferrableLoadKWh(0);
     } else if (cat === 'BESS') {
-      setName('Tesla Megapack Grid BESS');
+      setName('Megapack Storage Unit 4');
+      setHasBattery(true);
       setBaseSolar(0);
       setBaseLoad(0.8);
-      setMaxBattery(200);
-      setBattery(120);
+      setMaxBattery(220);
+      setBattery(140);
+      setDeferrableLoadKWh(0);
     }
   };
 
@@ -65,6 +76,18 @@ export default function AddNodeModal() {
     setError('');
     setSuccess(false);
     setIsOpen(true);
+  };
+
+  const handleToggleBattery = () => {
+    const nextVal = !hasBattery;
+    setHasBattery(nextVal);
+    if (!nextVal) {
+      setMaxBattery(0);
+      setBattery(0);
+    } else {
+      setMaxBattery(50);
+      setBattery(30);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -81,13 +104,15 @@ export default function AddNodeModal() {
       await spawnNode({
         name: name.trim(),
         category,
-        battery: Number(battery),
-        maxBattery: Number(maxBattery),
+        hasBattery,
+        battery: hasBattery ? Number(battery) : 0,
+        maxBattery: hasBattery ? Number(maxBattery) : 0,
+        batteryCapacity: hasBattery ? Number(maxBattery) : 0,
         baseSolar: Number(baseSolar),
+        maxGen: Number(baseSolar),
         baseLoad: Number(baseLoad),
-        targetSellPrice: Number(targetSellPrice),
-        maxBuyPrice: Number(maxBuyPrice),
-        walletBalance: category === 'BESS' ? 3500 : category === 'SolarFarm' ? 2500 : 750
+        deferrableLoadKWh: Number(deferrableLoadKWh),
+        walletBalance: category === 'BESS' ? 3500 : category === 'SolarFarm' ? 2500 : 800
       });
 
       setSuccess(true);
@@ -104,29 +129,29 @@ export default function AddNodeModal() {
 
   return (
     <>
-      {/* Floating Action Button (FAB) */}
+      {/* Prominent "+ Add Grid Node" Trigger */}
       <button
         onClick={handleOpen}
-        id="deploy-agent-fab"
-        className="absolute top-4 left-4 z-20 flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-[0_0_20px_rgba(6,182,212,0.45)] border border-cyan-300/30 transition-all transform hover:scale-105 active:scale-95"
+        id="add-grid-node-btn"
+        className="absolute top-4 left-4 z-20 flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-500 to-blue-600 hover:from-cyan-400 hover:via-teal-400 hover:to-blue-500 text-white text-xs font-extrabold shadow-[0_0_25px_rgba(6,182,212,0.5)] border border-cyan-300/40 transition-all transform hover:scale-105 active:scale-95"
       >
-        <Plus className="w-4 h-4" />
-        <span>Deploy Edge Agent</span>
+        <Plus className="w-4 h-4 stroke-[3]" />
+        <span>+ Add Grid Node</span>
       </button>
 
-      {/* Modal Backdrop & Dialog */}
+      {/* Modal Dialog */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-lg glass-panel rounded-2xl border border-slate-700/80 shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-lg glass-panel rounded-2xl border border-slate-700/80 shadow-[0_0_60px_rgba(0,0,0,0.85)] overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/60">
+            <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/70">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
                   <Cpu className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-100">Deploy Autonomous Edge Agent</h3>
-                  <p className="text-[11px] text-slate-400">Instantiate live agent with autonomous physics & Ethers.js wallet</p>
+                  <h3 className="text-sm font-bold text-slate-100">Deploy Q-Learning Edge Node</h3>
+                  <p className="text-[11px] text-slate-400">Tabular Q-learning brain & Ethers.js cryptographic wallet</p>
                 </div>
               </div>
               <button
@@ -145,10 +170,10 @@ export default function AddNodeModal() {
                 </div>
               )}
 
-              {/* Agent Category Selector */}
+              {/* Archetype Selector */}
               <div>
                 <label className="block text-slate-300 font-medium mb-1.5 uppercase text-[10px] tracking-wider">
-                  Select Agent Archetype
+                  Node Archetype
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
@@ -162,7 +187,7 @@ export default function AddNodeModal() {
                   >
                     <Home className="w-4 h-4 mb-1 text-emerald-400" />
                     <span className="font-semibold text-[11px]">Prosumer</span>
-                    <span className="text-[9px] text-slate-500">Solar + Load</span>
+                    <span className="text-[9px] text-slate-500">Solar + Storage</span>
                   </button>
 
                   <button
@@ -176,7 +201,7 @@ export default function AddNodeModal() {
                   >
                     <Building2 className="w-4 h-4 mb-1 text-orange-400" />
                     <span className="font-semibold text-[11px]">Consumer</span>
-                    <span className="text-[9px] text-slate-500">Heavy Load</span>
+                    <span className="text-[9px] text-slate-500">Load & DR</span>
                   </button>
 
                   <button
@@ -204,53 +229,73 @@ export default function AddNodeModal() {
                   >
                     <Layers className="w-4 h-4 mb-1 text-purple-400" />
                     <span className="font-semibold text-[11px]">BESS</span>
-                    <span className="text-[9px] text-slate-500">Storage Arbi</span>
+                    <span className="text-[9px] text-slate-500">Arbitrage</span>
                   </button>
                 </div>
               </div>
 
               {/* Agent Name */}
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Agent Name</label>
+                <label className="block text-slate-300 font-medium mb-1">Agent / Facility Name</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Apex Green Datacenter"
+                  placeholder="e.g. Apex Green Residence"
                   className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono text-xs"
                 />
               </div>
 
-              {/* Battery Parameters */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1 flex items-center space-x-1">
-                    <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Max Battery (kWh)</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="500"
-                    value={maxBattery}
-                    onChange={(e) => setMaxBattery(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 font-mono text-xs"
-                  />
+              {/* Battery Storage System Toggle */}
+              <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <BatteryCharging className={`w-4 h-4 ${hasBattery ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <div>
+                      <div className="font-semibold text-slate-200 text-xs">Battery Energy Storage (BESS)</div>
+                      <div className="text-[10px] text-slate-400">Enable local electrochemical battery capacity</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleBattery}
+                    className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-mono transition-colors border ${
+                      hasBattery
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {hasBattery ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4" />}
+                    <span>{hasBattery ? 'Enabled' : 'Disabled (0 kWh)'}</span>
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1 flex items-center space-x-1">
-                    <BatteryCharging className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Initial Charge (kWh)</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max={maxBattery}
-                    value={battery}
-                    onChange={(e) => setBattery(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 font-mono text-xs"
-                  />
-                </div>
+
+                {hasBattery && (
+                  <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-800/80 animate-fadeIn">
+                    <div>
+                      <label className="block text-slate-400 text-[10px] mb-1">Max Battery (kWh)</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="500"
+                        value={maxBattery}
+                        onChange={(e) => setMaxBattery(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950/80 border border-slate-700 text-slate-100 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-[10px] mb-1">Initial Charge (kWh)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxBattery}
+                        value={battery}
+                        onChange={(e) => setBattery(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950/80 border border-slate-700 text-slate-100 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Generation & Load Parameters */}
@@ -258,7 +303,7 @@ export default function AddNodeModal() {
                 <div>
                   <label className="block text-slate-300 font-medium mb-1 flex items-center space-x-1">
                     <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Base Solar (kW)</span>
+                    <span>Solar Capacity (kW)</span>
                   </label>
                   <input
                     type="number"
@@ -287,39 +332,22 @@ export default function AddNodeModal() {
                 </div>
               </div>
 
-              {/* Price Limits */}
-              {category === 'Prosumer' || category === 'SolarFarm' ? (
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Target Ask Price ($/kWh)</label>
-                  <input
-                    type="number"
-                    min="0.05"
-                    max="0.30"
-                    step="0.01"
-                    value={targetSellPrice}
-                    onChange={(e) => setTargetSellPrice(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 font-mono text-xs"
-                  />
-                </div>
-              ) : category === 'Consumer' ? (
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Max Bid Price ($/kWh)</label>
-                  <input
-                    type="number"
-                    min="0.10"
-                    max="0.40"
-                    step="0.01"
-                    value={maxBuyPrice}
-                    onChange={(e) => setMaxBuyPrice(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 font-mono text-xs"
-                  />
-                </div>
-              ) : null}
-
-              {/* Blockchain info note */}
-              <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-300 font-mono flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-                <span>An Ethereum secp256k1 keypair will be generated for this agent upon launch.</span>
+              {/* Deferrable Load for Demand Response */}
+              <div>
+                <label className="block text-slate-300 font-medium mb-1 flex items-center space-x-1">
+                  <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Deferrable Task Load (kWh)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  step="0.5"
+                  value={deferrableLoadKWh}
+                  onChange={(e) => setDeferrableLoadKWh(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 font-mono text-xs"
+                />
+                <span className="text-[10px] text-slate-500">Flexible load buffer (EV charging, heat pumps) for Q-learning demand response.</span>
               </div>
 
               {/* Submit Button */}
@@ -327,22 +355,22 @@ export default function AddNodeModal() {
                 <button
                   type="submit"
                   disabled={loading || success}
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-cyan-900/30 disabled:opacity-50"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-cyan-900/30 disabled:opacity-50"
                 >
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Generating Ethers Wallet & Launching...</span>
+                      <span>Instantiating Q-Learning Agent & Wallet...</span>
                     </>
                   ) : success ? (
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                      <span>Edge Agent Deployed!</span>
+                      <span>Grid Node Deployed!</span>
                     </>
                   ) : (
                     <>
                       <Plus className="w-4 h-4" />
-                      <span>Launch Autonomous Agent</span>
+                      <span>Deploy Autonomous Node</span>
                     </>
                   )}
                 </button>

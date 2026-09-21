@@ -126,20 +126,31 @@ export class MarketClearingEngine {
     let p2pVolumeThisTick = 0;
     let p2pValueThisTick = 0;
 
-    // 2. Bilateral P2P Auction Matching
+    // 2. Bilateral P2P Auction Matching with Single-Settlement-Per-Tick & Atomic Deductions
+    const settledAgentsInTick = new Set();
+
     for (const bidWrapper of bids) {
       const bid = bidWrapper.orderData;
-      if (bid.amountKwh <= 0.1) continue;
+      if (bid.amountKwh <= 0.1 || settledAgentsInTick.has(bid.agentId)) continue;
 
       for (const askWrapper of asks) {
         const ask = askWrapper.orderData;
-        if (ask.amountKwh <= 0.1 || ask.agentId === bid.agentId) continue;
+        if (ask.amountKwh <= 0.1 || ask.agentId === bid.agentId || settledAgentsInTick.has(ask.agentId)) continue;
 
         // Condition for match: Bid price >= Ask price
         if (bid.priceLimit >= ask.priceLimit) {
+          // Synchronous atomic volume calculation & immediate deduction
           const tradeVolume = Math.min(bid.amountKwh, ask.amountKwh);
           const tradePrice = Number(dynamicPrice.toFixed(3));
           const tradeCost = Number((tradeVolume * tradePrice).toFixed(3));
+
+          // Atomically deduct volume from orders immediately
+          bid.amountKwh = Number((bid.amountKwh - tradeVolume).toFixed(2));
+          ask.amountKwh = Number((ask.amountKwh - tradeVolume).toFixed(2));
+
+          // Lock agents for this clearing tick
+          settledAgentsInTick.add(bid.agentId);
+          settledAgentsInTick.add(ask.agentId);
 
           // Generate cryptographic trade transaction hash
           const txHashInput = `${bidWrapper.signature}-${askWrapper.signature}-${Date.now()}`;
@@ -162,9 +173,6 @@ export class MarketClearingEngine {
             status: 'Settled'
           };
 
-          bid.amountKwh = Number((bid.amountKwh - tradeVolume).toFixed(2));
-          ask.amountKwh = Number((ask.amountKwh - tradeVolume).toFixed(2));
-
           p2pVolumeThisTick += tradeVolume;
           p2pValueThisTick += tradeCost;
 
@@ -180,6 +188,11 @@ export class MarketClearingEngine {
 
           // Settle balances with EdgeAgents through event broker
           eventBroker.emit('order:settled', trade);
+
+          // If buyer bid is filled, break to next buyer
+          if (bid.amountKwh <= 0.05) {
+            break;
+          }
         }
       }
     }
