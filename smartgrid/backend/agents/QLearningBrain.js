@@ -18,11 +18,11 @@ export class QLearningBrain {
   }
 
   /**
-   * Discretizes continuous physics, market telemetry, and 3-hour solar forecast into a 5D state key:
-   * State = NetPower | Storage | MarketPrice | DeferrableLoad | SolarForecast
-   * e.g. "SURPLUS|MED_BATT|MID|TASK_PENDING|FORECAST_DROP"
+   * Discretizes continuous physics, market telemetry, 3-hour solar forecast, and macro-demand cycle into a 6D state key:
+   * State = NetPower | Storage | MarketPrice | DeferrableLoad | SolarForecast | GridCycle
+   * e.g. "SURPLUS|MED_BATT|MID|TASK_PENDING|FORECAST_DROP|SOLAR_GLUT"
    */
-  discretizeState({ netPowerKW, batteryKWh, maxBatteryKWh, hasBattery, spotPrice, deferrableLoadKWh, solarForecast }) {
+  discretizeState({ netPowerKW, batteryKWh, maxBatteryKWh, hasBattery, spotPrice, deferrableLoadKWh, solarForecast, gridCycle }) {
     // 1. Net Power
     let netCategory = 'BALANCED';
     if (netPowerKW > 0.5) netCategory = 'SURPLUS';
@@ -48,7 +48,14 @@ export class QLearningBrain {
     // 5. Solar Forecast
     const forecastCategory = solarForecast || 'FORECAST_CLEAR';
 
-    return `${netCategory}|${storageCategory}|${priceCategory}|${deferrableCategory}|${forecastCategory}`;
+    // 6. Macro-Demand State (GridCycle)
+    const cycleCategory = gridCycle || 'SOLAR_GLUT';
+
+    return `${netCategory}|${storageCategory}|${priceCategory}|${deferrableCategory}|${forecastCategory}|${cycleCategory}`;
+  }
+
+  getStateKey(params) {
+    return this.discretizeState(params);
   }
 
   /**

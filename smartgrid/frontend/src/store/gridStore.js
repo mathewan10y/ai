@@ -20,6 +20,10 @@ export const useGridStore = create((set, get) => {
     set({ isConnected: false });
   });
 
+  socket.on('clock-update', (clockData) => {
+    set({ clock: clockData });
+  });
+
   socket.on('node_spawned', (newNode) => {
     set((state) => {
       const exists = state.nodes.some((n) => n.id === newNode.id);
@@ -56,6 +60,8 @@ export const useGridStore = create((set, get) => {
         nodes: updatedNodes,
         transactions: data.transactions || state.transactions,
         marketStats: data.marketStats || state.marketStats,
+        gridPhysics: data.gridPhysics || state.gridPhysics,
+        clock: data.clock || state.clock,
         weather: data.weather || state.weather,
         demandScenario: data.demandScenario || state.demandScenario,
         isPaused: typeof data.isPaused === 'boolean' ? data.isPaused : state.isPaused,
@@ -144,13 +150,38 @@ export const useGridStore = create((set, get) => {
     transactions: [],
     activeTrades: [],
     marketStats: {
+      uniformClearingPrice: 0.18,
       spotPrice: 0.18,
       totalP2PVolumeKwh: 0,
       totalP2PValueUsd: 0,
       cleanEnergyRatio: 100,
       activeTradesCount: 0,
       gridLoadKwh: 0,
-      verifiedSignaturesCount: 0
+      verifiedSignaturesCount: 0,
+      totalClearedBatches: 0,
+      transformerLoadKW: 0,
+      thermalLimitKW: 100,
+      isCongested: false
+    },
+    gridPhysics: {
+      transformerLoadKW: 0,
+      thermalLimitKW: 100,
+      congestionRatio: 0,
+      isCongested: false,
+      curtailedTradesCount: 0,
+      totalCurtailedVolumeKwh: 0
+    },
+    clock: {
+      day: 1,
+      hour: 8,
+      minute: 0,
+      timeString: 'Day 1 - 08:00',
+      timeFormatted: '08:00',
+      gridCycle: 'MORNING_RAMP',
+      cycleDisplayName: 'Morning Ramp',
+      solarMultiplier: 1.0,
+      demandMultiplier: 1.0,
+      isPaused: false
     },
     weather: 'Sunny',
     demandScenario: 'Normal',
@@ -192,6 +223,10 @@ export const useGridStore = create((set, get) => {
 
     setDemandScenario: (scenario) => {
       socket.emit('set-demand', scenario);
+    },
+
+    setClock: (hour, minute = 0, day = 1) => {
+      socket.emit('set-clock', { hour, minute, day });
     },
 
     updateNodeStrategy: (nodeId, settings) => {

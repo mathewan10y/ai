@@ -48,6 +48,7 @@ export default function GridMap() {
   const updateConnection = useGridStore((state) => state.updateConnection);
   const selectedNodeId = useGridStore((state) => state.selectedNodeId);
   const updateNodePosition = useGridStore((state) => state.updateNodePosition);
+  const gridPhysics = useGridStore((state) => state.gridPhysics);
 
   // React Flow state hooks
   const [flowNodes, setFlowNodes, onNodesChangeReactFlow] = useNodesState([]);
@@ -66,12 +67,18 @@ export default function GridMap() {
       // Compute auto-distribution if needed
       const autoPositions = distributeNodesOnBus(nodes, prevBusbarPos, busbarWidth);
 
-      // 1. Central Busbar node (movable & resizable)
+      // 1. Central Busbar node (movable & resizable with live transformer load gauge)
       const busbarNode = {
         id: 'central-busbar',
         type: 'BusbarNode',
         position: prevBusbarPos,
-        data: { name: 'Main Distribution Busbar', width: busbarWidth },
+        data: {
+          name: 'Main Distribution Busbar',
+          width: busbarWidth,
+          transformerLoadKW: gridPhysics?.transformerLoadKW ?? 0,
+          thermalLimitKW: gridPhysics?.thermalLimitKW ?? 100,
+          isCongested: gridPhysics?.isCongested ?? false
+        },
         draggable: true,
         selectable: true,
         deletable: false,

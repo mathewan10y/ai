@@ -69,14 +69,37 @@ const BusbarNode = ({ data, selected }) => {
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[pulse_2s_ease-in-out_infinite]" />
       </div>
 
-      {/* Technical Bus Label / SLD Badge */}
-      <div className="absolute -top-6 left-2 flex items-center space-x-2 px-2.5 py-0.5 rounded-full bg-slate-900/90 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 shadow-md backdrop-blur-md">
-        <Zap className="w-3 h-3 text-cyan-400 fill-current animate-pulse" />
-        <span className="font-bold">Local Distribution Transformer</span>
-        <span className="text-slate-500">•</span>
-        <span className="text-slate-400">100kW Limit</span>
-        <span className="text-slate-500">•</span>
-        <span className="text-emerald-400 font-bold">400V / 50Hz</span>
+      {/* Technical Transformer & Thermal Capacity Gauge SLD Badge */}
+      <div className="absolute -top-10 left-2 flex items-center space-x-3 px-3 py-1.5 rounded-xl bg-slate-900/95 border border-cyan-500/40 text-[10px] font-mono shadow-xl backdrop-blur-md">
+        <div className="flex items-center space-x-1.5 text-cyan-300 font-bold border-r border-slate-700/80 pr-2.5">
+          <Zap className="w-3.5 h-3.5 text-cyan-400 fill-current animate-pulse" />
+          <span>Central 100kVA Transformer</span>
+        </div>
+
+        {/* Live Thermal Gauge */}
+        <div className="flex items-center space-x-2">
+          <span className="text-slate-400">Thermal Load:</span>
+          <div className="w-24 h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+            <div
+              className={`h-full transition-all duration-500 rounded-full ${
+                data?.isCongested || (data?.transformerLoadKW && data.transformerLoadKW > 90)
+                  ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]'
+                  : data?.transformerLoadKW > 60
+                  ? 'bg-amber-400'
+                  : 'bg-gradient-to-r from-emerald-400 to-cyan-400'
+              }`}
+              style={{ width: `${Math.min(100, Math.round(((data?.transformerLoadKW || 0) / (data?.thermalLimitKW || 100)) * 100))}%` }}
+            />
+          </div>
+          <span className={`font-bold ${data?.isCongested ? 'text-rose-400 animate-pulse' : 'text-slate-200'}`}>
+            {data?.transformerLoadKW || 0} / {data?.thermalLimitKW || 100} kW
+          </span>
+          {data?.isCongested && (
+            <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold text-[9px] animate-pulse">
+              CONGESTION CURTAILING
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Substation Feeder Tap on the far right */}

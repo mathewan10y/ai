@@ -4,6 +4,8 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { nodeFactory } from './agents/NodeFactory.js';
 import { marketEngine } from './engine/marketEngine.js';
+import { simulationClock } from './services/SimulationClock.js';
+import { eventBroker } from './engine/eventBroker.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -19,8 +21,14 @@ const io = new Server(server, {
   }
 });
 
-// Bootstrap initial smart grid edge agents
+// Bootstrap initial smart grid edge agents and start simulation clock
 nodeFactory.bootstrapDefaultGrid();
+simulationClock.start();
+
+// Broadcast clock updates whenever clock ticks
+eventBroker.on('clock:tick', (clockState) => {
+  io.emit('clock-update', clockState);
+});
 
 // ==========================================
 // REST API ENDPOINTS
@@ -32,9 +40,22 @@ app.get('/api/status', (req, res) => {
     isPaused: marketEngine.isPaused,
     tickCount: marketEngine.tickCount,
     marketStats: marketEngine.marketStats,
+    clock: simulationClock.getClockState(),
     weather: marketEngine.weather,
     demandScenario: marketEngine.demandScenario
   });
+});
+
+app.get('/api/clock', (req, res) => {
+  res.json(simulationClock.getClockState());
+});
+
+app.post('/api/clock', (req, res) => {
+  const { hour, minute, day } = req.body;
+  const updated = simulationClock.setTime(hour, minute, day);
+  io.emit('clock-update', updated);
+  io.emit('grid-update', marketEngine.getState());
+  res.json(updated);
 });
 
 app.get('/api/grid/nodes', (req, res) => {
@@ -179,6 +200,12 @@ io.on('connection', (socket) => {
 
   socket.on('set-demand', (scenario) => {
     marketEngine.setDemandScenario(scenario);
+    io.emit('grid-update', marketEngine.getState());
+  });
+
+  socket.on('set-clock', ({ hour, minute, day }) => {
+    const updated = simulationClock.setTime(hour, minute, day);
+    io.emit('clock-update', updated);
     io.emit('grid-update', marketEngine.getState());
   });
 

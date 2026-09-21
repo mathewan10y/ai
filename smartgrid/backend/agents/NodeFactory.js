@@ -11,12 +11,14 @@ export class NodeFactory {
   createAgent(config = {}) {
     let agent;
     const category = config.category || config.type?.replace('Node', '') || 'Prosumer';
+    const lcosPerKWh = typeof config.lcosPerKWh === 'number' ? config.lcosPerKWh : 0.04;
 
     if (category.toLowerCase() === 'utilitygrid' || category.toLowerCase() === 'grid') {
       agent = new GridAgent(config);
     } else {
       agent = new EdgeAgent({
         ...config,
+        lcosPerKWh,
         category,
         type: `${category}Node`
       });

@@ -108,7 +108,7 @@ const BESSNode = ({ id, data, selected }) => {
         <div className="flex items-center justify-between pt-1 text-[10px] border-t border-slate-800/60 font-mono">
           <div className="flex items-center space-x-1 text-slate-400">
             <Wallet className="w-3 h-3 text-slate-500" />
-            <span className="text-slate-200 font-bold">${data.walletBalance ? data.walletBalance.toFixed(2) : '0.00'}</span>
+            <span className="text-slate-200 font-bold">${typeof data.walletBalance === 'number' ? data.walletBalance.toFixed(2) : Number(data.walletBalance || 0).toFixed(2)}</span>
           </div>
           <div className="text-purple-400 font-mono">
             <span>BESS Arbitrageur</span>

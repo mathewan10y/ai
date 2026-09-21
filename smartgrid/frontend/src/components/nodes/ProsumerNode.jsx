@@ -120,10 +120,12 @@ const ProsumerNode = ({ id, data, selected }) => {
         <div className="flex items-center justify-between pt-1 text-[10px] border-t border-slate-800/60 font-mono">
           <div className="flex items-center space-x-1 text-slate-400">
             <Wallet className="w-3 h-3 text-slate-500" />
-            <span className="text-slate-200 font-bold">${data.walletBalance.toFixed(2)}</span>
+            <span className="text-slate-200 font-bold">
+              ${typeof data.walletBalance === 'number' ? data.walletBalance.toFixed(2) : Number(data.walletBalance || 0).toFixed(2)}
+            </span>
           </div>
           <div className="text-emerald-400/90 flex items-center">
-            <span>Ask: ${data.targetSellPrice}/kWh</span>
+            <span>Ask: ${data.targetSellPrice || 0.15}/kWh</span>
           </div>
         </div>
       </div>

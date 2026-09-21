@@ -36,6 +36,9 @@ export class EdgeAgent {
 
     // Financials & Balances
     this.walletBalance = typeof config.walletBalance === 'number' ? config.walletBalance : 500.00;
+    this.lcosPerKWh = typeof config.lcosPerKWh === 'number' ? config.lcosPerKWh : 0.04;
+    this.totalLcosCostUsd = 0.0;
+    this.totalImbalancePenaltiesUsd = 0.0;
 
     // Battery / Storage Configuration
     this.maxBatteryKWh = typeof config.maxBattery === 'number' ? config.maxBattery : (typeof config.maxBatteryKWh === 'number' ? config.maxBatteryKWh : 50.0);
@@ -57,7 +60,9 @@ export class EdgeAgent {
     this.currentAction = 'HOLD';
     this.isExploration = false;
     this.qValues = [];
-    this.stateKey = 'BALANCED|NO_BATTERY|MID|TASK_DONE|FORECAST_CLEAR';
+    this.gridCycle = config.gridCycle || 'SOLAR_GLUT';
+    this.simTime = 'Day 1 - 08:00';
+    this.stateKey = 'BALANCED|NO_BATTERY|MID|TASK_DONE|FORECAST_CLEAR|SOLAR_GLUT';
     this.prevStateKey = null;
     this.prevAction = null;
     this.history = config.history || [];
@@ -93,9 +98,20 @@ export class EdgeAgent {
     this._onDemand = (demand) => { this.demandScenario = demand; };
     this._onPause = (isPaused) => { this.isPaused = isPaused; };
     this._onSpotPrice = (price) => { this.spotPrice = price; };
+    this._onClock = (clockState) => {
+      if (clockState) {
+        this.gridCycle = clockState.gridCycle || this.gridCycle;
+        this.simTime = clockState.timeString || this.simTime;
+      }
+    };
     this._onSettled = (trade) => {
       if (trade.buyerId === this.id || trade.sellerId === this.id) {
         this.handleSettlement(trade);
+      }
+    };
+    this._onImbalance = (penaltyData) => {
+      if (penaltyData && penaltyData.agentId === this.id) {
+        this.handleImbalancePenalty(penaltyData);
       }
     };
 
@@ -103,7 +119,9 @@ export class EdgeAgent {
     eventBroker.on('env:demand', this._onDemand);
     eventBroker.on('grid:pause', this._onPause);
     eventBroker.on('market:spotPrice', this._onSpotPrice);
+    eventBroker.on('clock:tick', this._onClock);
     eventBroker.on('order:settled', this._onSettled);
+    eventBroker.on('agent:imbalance_penalty', this._onImbalance);
   }
 
   start() {
@@ -126,7 +144,9 @@ export class EdgeAgent {
     eventBroker.off('env:demand', this._onDemand);
     eventBroker.off('grid:pause', this._onPause);
     eventBroker.off('market:spotPrice', this._onSpotPrice);
+    eventBroker.off('clock:tick', this._onClock);
     eventBroker.off('order:settled', this._onSettled);
+    eventBroker.off('agent:imbalance_penalty', this._onImbalance);
     eventBroker.emit('agent:destroyed', { id: this.id });
   }
 
@@ -150,12 +170,12 @@ export class EdgeAgent {
   }
 
   async tick() {
-    // 1. Update local physical generation & base load from localized weather telemetry
+    // 1. Update local physical generation & base load from localized weather telemetry & diurnal clock
     await this.updatePhysics();
 
     const netPowerKW = this.currentGenKW - this.currentLoadKW;
 
-    // 2. Discretize current state for Q-Learning (including 3-hour solar lookahead)
+    // 2. Discretize current state for Q-Learning (including 3-hour solar lookahead & GridCycle)
     const currentStateKey = this.brain.discretizeState({
       netPowerKW,
       batteryKWh: this.batteryKWh,
@@ -163,7 +183,8 @@ export class EdgeAgent {
       hasBattery: this.hasBattery,
       spotPrice: this.spotPrice,
       deferrableLoadKWh: this.deferrableLoadKWh,
-      solarForecast: this.weatherTelemetry?.solarForecast || 'FORECAST_CLEAR'
+      solarForecast: this.weatherTelemetry?.solarForecast || 'FORECAST_CLEAR',
+      gridCycle: this.gridCycle
     });
 
     const validActions = this.brain.getValidActions({
@@ -205,6 +226,10 @@ export class EdgeAgent {
               priceLimit: Number(Math.min(0.24, this.spotPrice + 0.01).toFixed(3))
             };
           }
+          // Strategic incentive: charging during SOLAR_GLUT when green solar is peak
+          if (this.gridCycle === 'SOLAR_GLUT') {
+            immediateReward += 0.30;
+          }
           // If preemptively charging ahead of a solar drop, reward anticipatory behavior
           if (this.weatherTelemetry?.solarForecast === 'FORECAST_DROP') {
             immediateReward += 0.25;
@@ -217,13 +242,25 @@ export class EdgeAgent {
         if (this.hasBattery && this.batteryKWh > (this.maxBatteryKWh * 0.2)) {
           this.tradingStatus = 'Discharging';
           const surplusKwh = Number((this.batteryKWh - (this.maxBatteryKWh * 0.2)).toFixed(2));
-          const tradeVolume = Math.min(20.0, surplusKwh);
+          // Apply safety margin (bidding 85% of available headroom to prevent shortfall)
+          const tradeVolume = Math.min(20.0, Number((surplusKwh * 0.85).toFixed(2)));
+          
           if (tradeVolume > 0.5) {
+            // Price floor incorporates LCOS degradation cost
+            const minFloorPrice = Number((this.lcosPerKWh + 0.06).toFixed(3));
             orderToSign = {
               side: 'ASK',
               amountKwh: tradeVolume,
-              priceLimit: Number(Math.max(0.10, this.spotPrice - 0.01).toFixed(3))
+              priceLimit: Number(Math.max(minFloorPrice, this.spotPrice - 0.01).toFixed(3))
             };
+          }
+
+          // STRATEGIC OPPORTUNITY COST:
+          // Discharging during SOLAR_GLUT is severely penalized so agent learns to hold for EVENING_PEAK
+          if (this.gridCycle === 'SOLAR_GLUT') {
+            immediateReward -= 0.45;
+          } else if (this.gridCycle === 'EVENING_PEAK') {
+            immediateReward += 0.35;
           }
         }
         break;
@@ -236,8 +273,8 @@ export class EdgeAgent {
           const consumedBatch = Math.min(3.0, this.deferrableLoadKWh);
           this.currentLoadKW += 4.5;
           this.deferrableLoadKWh = Math.max(0, Number((this.deferrableLoadKWh - consumedBatch).toFixed(2)));
-          // Positive reward for clearing deferrable tasks when market price is low/mid
-          immediateReward += (this.spotPrice < 0.18 ? 0.35 : 0.10);
+          // Positive reward for clearing deferrable tasks when market price is low/mid or during solar glut
+          immediateReward += (this.spotPrice < 0.18 || this.gridCycle === 'SOLAR_GLUT' ? 0.35 : 0.10);
         }
         break;
 
@@ -245,8 +282,8 @@ export class EdgeAgent {
         this.curtailed = false;
         this.tradingStatus = 'Shedding Load';
         this.currentLoadKW = Math.max(0.5, Number((this.currentLoadKW * 0.65).toFixed(2)));
-        // Reward for avoiding peak pricing
-        if (this.spotPrice > 0.20) {
+        // Reward for avoiding peak pricing during evening peak
+        if (this.spotPrice > 0.20 || this.gridCycle === 'EVENING_PEAK') {
           immediateReward += 0.30;
         }
         break;
@@ -272,11 +309,15 @@ export class EdgeAgent {
           };
         } else if (netPowerKW > 0.5) {
           this.tradingStatus = 'Selling';
-          orderToSign = {
-            side: 'ASK',
-            amountKwh: Number(netPowerKW.toFixed(2)),
-            priceLimit: Number(Math.max(0.11, this.spotPrice).toFixed(3))
-          };
+          // Conservative safety margin (88% of net power) to guard against weather drift shortfall
+          const safeSurplus = Number((netPowerKW * 0.88).toFixed(2));
+          if (safeSurplus > 0.3) {
+            orderToSign = {
+              side: 'ASK',
+              amountKwh: safeSurplus,
+              priceLimit: Number(Math.max(0.11, this.spotPrice).toFixed(3))
+            };
+          }
         } else {
           this.tradingStatus = 'Balanced';
         }
@@ -308,20 +349,29 @@ export class EdgeAgent {
       console.warn(`[Agent ${this.id}] Weather fetch fallback:`, err.message);
     }
 
-    // 2. Physical Solar Generation based on Shortwave Radiation (W/m²) and Cloud Cover (%)
+    // 2. Physical Solar Generation based on Shortwave Radiation (W/m²), Cloud Cover (%), and Macro GridCycle
+    let diurnalSolarMult = 1.0;
+    if (this.gridCycle === 'MORNING_RAMP') diurnalSolarMult = 0.65;
+    else if (this.gridCycle === 'SOLAR_GLUT') diurnalSolarMult = 1.25;
+    else if (this.gridCycle === 'EVENING_PEAK') diurnalSolarMult = 0.25;
+    else if (this.gridCycle === 'OFF_PEAK_NIGHT') diurnalSolarMult = 0.0;
+
     if (this.baseGenKW > 0) {
       const radiationRatio = Math.max(0, (this.weatherTelemetry.shortwaveRadiation || 0) / 750);
       const cloudFactor = Math.max(0.15, 1 - ((this.weatherTelemetry.cloudCover || 0) / 160));
       const genJitter = (Math.random() * 0.4) - 0.2;
-      this.currentGenKW = Math.max(0, Number((this.baseGenKW * radiationRatio * cloudFactor + genJitter).toFixed(2)));
+      this.currentGenKW = Math.max(0, Number((this.baseGenKW * radiationRatio * cloudFactor * diurnalSolarMult + genJitter).toFixed(2)));
     } else {
       this.currentGenKW = 0;
     }
 
     // 3. Base Load & Demand Multiplier
     let demandMultiplier = 1.0;
-    if (this.demandScenario === 'Normal') demandMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
-    else if (this.demandScenario === 'Peak Surge') demandMultiplier = 1.55 + (Math.random() * 0.35);
+    if (this.gridCycle === 'EVENING_PEAK') demandMultiplier = 1.45;
+    else if (this.gridCycle === 'OFF_PEAK_NIGHT') demandMultiplier = 0.65;
+    else if (this.gridCycle === 'MORNING_RAMP') demandMultiplier = 1.10;
+
+    if (this.demandScenario === 'Peak Surge') demandMultiplier *= 1.4;
 
     const loadJitter = (Math.random() * 0.6) - 0.3;
     this.currentLoadKW = Math.max(0.4, Number((this.baseLoadKW * demandMultiplier + loadJitter).toFixed(2)));
@@ -374,11 +424,25 @@ export class EdgeAgent {
       reward = Number((savings * 1.5).toFixed(3)); // Positive reinforcement for cheap green imports
     } else if (isSeller) {
       this.walletBalance = Number((this.walletBalance + trade.totalCost).toFixed(2));
+      
+      let degradationCost = 0;
       if (this.hasBattery) {
         this.batteryKWh = Math.max(0, Number((this.batteryKWh - trade.amountKwh * 0.4).toFixed(2)));
+        // LCOS Levelized Cost of Storage deduction
+        degradationCost = Number((trade.amountKwh * this.lcosPerKWh).toFixed(3));
+        this.totalLcosCostUsd = Number((this.totalLcosCostUsd + degradationCost).toFixed(2));
       }
-      // Reward = P2P revenue earned
-      reward = Number((trade.totalCost * 1.2).toFixed(3));
+
+      // Net trade revenue after LCOS degradation
+      const netRevenue = Math.max(0, trade.totalCost - degradationCost);
+      reward = Number((netRevenue * 1.2).toFixed(3));
+
+      // Strategic opportunity cost modification on actual settlement
+      if (this.gridCycle === 'SOLAR_GLUT') {
+        reward -= 0.30;
+      } else if (this.gridCycle === 'EVENING_PEAK') {
+        reward += 0.25;
+      }
     }
 
     // Trigger Bellman learning update upon market settlement
@@ -393,6 +457,38 @@ export class EdgeAgent {
 
     this.lastSettlementTimestamp = Date.now();
     this.history = [trade, ...(this.history || [])].slice(0, 20);
+    this.publishTelemetry();
+  }
+
+  handleImbalancePenalty(penaltyData) {
+    const { shortfallKwh, tariffPerKwh, penaltyCost, reason } = penaltyData;
+    this.walletBalance = Number((this.walletBalance - penaltyCost).toFixed(2));
+    this.totalImbalancePenaltiesUsd = Number((this.totalImbalancePenaltiesUsd + penaltyCost).toFixed(2));
+
+    // Feed directly into negative RL reward so agent learns conservative bidding
+    const negativeReward = -Number((penaltyCost * 2.0).toFixed(3));
+    const validActions = this.brain.getValidActions({
+      hasBattery: this.hasBattery,
+      isSurplus: false,
+      deferrableLoadKWh: this.deferrableLoadKWh
+    });
+    this.brain.learn(this.stateKey, this.currentAction, negativeReward, this.stateKey, validActions);
+
+    const penaltyRecord = {
+      id: `tx-penalty-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toLocaleTimeString(),
+      type: 'IMBALANCE_PENALTY',
+      sellerId: this.id,
+      sellerName: this.name,
+      buyerId: 'grid-main',
+      buyerName: 'Utility Grid (Imbalance Tariff)',
+      amountKwh: shortfallKwh,
+      pricePerKwh: tariffPerKwh,
+      totalCost: penaltyCost,
+      status: 'Shortfall Tariff Incurred'
+    };
+
+    this.history = [penaltyRecord, ...(this.history || [])].slice(0, 20);
     this.publishTelemetry();
   }
 
@@ -422,6 +518,9 @@ export class EdgeAgent {
       weather: this.weatherTelemetry,
       address: this.address,
       walletBalance: this.walletBalance,
+      lcosPerKWh: this.lcosPerKWh,
+      totalLcosCostUsd: this.totalLcosCostUsd,
+      totalImbalancePenaltiesUsd: this.totalImbalancePenaltiesUsd,
       hasBattery: this.hasBattery,
       battery: this.batteryKWh,
       batteryKWh: this.batteryKWh,
@@ -438,6 +537,8 @@ export class EdgeAgent {
       isExploration: this.isExploration,
       epsilon: this.brain.epsilon,
       qValues: this.qValues,
+      gridCycle: this.gridCycle,
+      simTime: this.simTime,
       stateKey: this.stateKey,
       stats: this.stats,
       history: this.history
