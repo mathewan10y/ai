@@ -14,7 +14,9 @@ import {
   Loader2,
   ToggleLeft,
   ToggleRight,
-  Clock
+  Clock,
+  Globe,
+  MapPin
 } from 'lucide-react';
 import { useGridStore } from '../../store/gridStore';
 
@@ -28,11 +30,18 @@ export default function AddNodeModal() {
   const [baseSolar, setBaseSolar] = useState(12);
   const [baseLoad, setBaseLoad] = useState(3.5);
   const [deferrableLoadKWh, setDeferrableLoadKWh] = useState(4.0);
+  const [latitude, setLatitude] = useState(37.7749);
+  const [longitude, setLongitude] = useState(-122.4194);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
   const spawnNode = useGridStore((state) => state.spawnNode);
+
+  const setLocationPreset = (lat, lon) => {
+    setLatitude(lat);
+    setLongitude(lon);
+  };
 
   const handleCategoryChange = (cat) => {
     setCategory(cat);
@@ -44,6 +53,8 @@ export default function AddNodeModal() {
       setMaxBattery(60);
       setBattery(35);
       setDeferrableLoadKWh(4.0);
+      setLatitude(37.7749);
+      setLongitude(-122.4194);
     } else if (cat === 'Consumer') {
       setName('Nexus AI EV Datacenter');
       setHasBattery(false); // Consumer can start battery-less for demand response
@@ -52,6 +63,8 @@ export default function AddNodeModal() {
       setMaxBattery(0);
       setBattery(0);
       setDeferrableLoadKWh(14.0);
+      setLatitude(30.2672);
+      setLongitude(-97.7431);
     } else if (cat === 'SolarFarm') {
       setName('Solaria MegaFarm Phase 2');
       setHasBattery(true);
@@ -60,6 +73,8 @@ export default function AddNodeModal() {
       setMaxBattery(180);
       setBattery(100);
       setDeferrableLoadKWh(0);
+      setLatitude(33.4484);
+      setLongitude(-112.0740);
     } else if (cat === 'BESS') {
       setName('Megapack Storage Unit 4');
       setHasBattery(true);
@@ -68,6 +83,8 @@ export default function AddNodeModal() {
       setMaxBattery(220);
       setBattery(140);
       setDeferrableLoadKWh(0);
+      setLatitude(39.5296);
+      setLongitude(-119.8138);
     }
   };
 
@@ -112,6 +129,8 @@ export default function AddNodeModal() {
         maxGen: Number(baseSolar),
         baseLoad: Number(baseLoad),
         deferrableLoadKWh: Number(deferrableLoadKWh),
+        latitude: Number(latitude) || 37.7749,
+        longitude: Number(longitude) || -122.4194,
         walletBalance: category === 'BESS' ? 3500 : category === 'SolarFarm' ? 2500 : 800
       });
 
@@ -348,6 +367,85 @@ export default function AddNodeModal() {
                   className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-slate-100 font-mono text-xs"
                 />
                 <span className="text-[10px] text-slate-500">Flexible load buffer (EV charging, heat pumps) for Q-learning demand response.</span>
+              </div>
+
+              {/* Geographical Coordinates & Open-Meteo Presets */}
+              <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 text-slate-300 font-medium text-xs">
+                    <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Geographical Coordinates (Open-Meteo)</span>
+                  </div>
+                  <span className="text-[10px] text-cyan-400/80 font-mono">Live Solar Irradiance</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1">Latitude (°N)</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={latitude}
+                      onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-1.5 rounded-lg bg-slate-950/80 border border-slate-700 text-slate-100 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1">Longitude (°E)</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={longitude}
+                      onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-1.5 rounded-lg bg-slate-950/80 border border-slate-700 text-slate-100 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Preset Location Buttons */}
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-1 flex items-center space-x-1">
+                    <MapPin className="w-3 h-3 text-slate-400" />
+                    <span>Quick Location Presets:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setLocationPreset(37.7749, -122.4194)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 transition-colors"
+                    >
+                      San Francisco
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocationPreset(33.4484, -112.0740)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-amber-300 border border-slate-700 transition-colors"
+                    >
+                      Phoenix (High Sun)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocationPreset(34.0522, -118.2437)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 transition-colors"
+                    >
+                      Los Angeles
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocationPreset(30.2672, -97.7431)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 transition-colors"
+                    >
+                      Austin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocationPreset(52.5200, 13.4050)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 transition-colors"
+                    >
+                      Berlin
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Submit Button */}

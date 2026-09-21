@@ -25,12 +25,12 @@ const SolarFarmNode = ({ id, data, selected }) => {
       }`}
     >
       {/* Handles */}
-      <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
-      <Handle type="source" position={Position.Top} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
-      <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
-      <Handle type="source" position={Position.Left} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
-      <Handle type="target" position={Position.Right} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
-      <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="top-target" type="target" position={Position.Top} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="top" type="source" position={Position.Top} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="left-target" type="target" position={Position.Left} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="left" type="source" position={Position.Left} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="right-target" type="target" position={Position.Right} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="right" type="source" position={Position.Right} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
 
       {/* Header Bar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-slate-800/30">
@@ -65,17 +65,30 @@ const SolarFarmNode = ({ id, data, selected }) => {
             <Sun className="w-3.5 h-3.5 text-amber-400" />
             <div>
               <div className="text-[9px] text-slate-400 uppercase tracking-wider">Array Output</div>
-              <div className="font-mono font-bold text-amber-300">{data.solarGeneration} <span className="text-[9px] font-normal text-slate-400">kW</span></div>
+              <div className="font-mono font-bold text-amber-300">{data.solarGeneration ?? data.currentGenKW ?? 0} <span className="text-[9px] font-normal text-slate-400">kW</span></div>
             </div>
           </div>
           <div className="flex items-center space-x-1.5 p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/40">
             <Zap className="w-3.5 h-3.5 text-slate-400" />
             <div>
               <div className="text-[9px] text-slate-400 uppercase tracking-wider">Aux Load</div>
-              <div className="font-mono font-bold text-slate-200">{data.loadConsumption} <span className="text-[9px] font-normal text-slate-400">kW</span></div>
+              <div className="font-mono font-bold text-slate-200">{data.loadConsumption ?? data.currentLoadKW ?? 0} <span className="text-[9px] font-normal text-slate-400">kW</span></div>
             </div>
           </div>
         </div>
+
+        {/* Localized Weather & Irradiance Badge */}
+        {data.weather && (
+          <div className="flex items-center justify-between px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] font-mono text-amber-300">
+            <span className="flex items-center space-x-1">
+              <Sun className="w-3 h-3 text-amber-400" />
+              <span>{data.weather.shortwaveRadiation ?? 0} W/m²</span>
+            </span>
+            <span className="text-slate-400 text-[9px]">
+              ☁️ {data.weather.cloudCover ?? 0}% • {data.weather.solarForecast === 'FORECAST_DROP' ? '📉 Drop Soon' : '☀️ Clear'}
+            </span>
+          </div>
+        )}
 
         {/* Storage Bar */}
         <div className="space-y-1">
@@ -106,8 +119,9 @@ const SolarFarmNode = ({ id, data, selected }) => {
         </div>
       </div>
 
-      <Handle type="target" position={Position.Bottom} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
-      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      {/* Bottom handles */}
+      <Handle id="bottom-target" type="target" position={Position.Bottom} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-amber-400 !border-slate-900" />
     </div>
   );
 };

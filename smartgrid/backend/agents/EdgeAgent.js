@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { eventBroker } from '../engine/eventBroker.js';
 import { QLearningBrain } from './QLearningBrain.js';
+import { weatherService } from '../services/WeatherService.js';
 
 /**
  * Autonomous Edge Agent with an independent Q-Learning Brain and Ethers.js Wallet
@@ -12,6 +13,17 @@ export class EdgeAgent {
     this.type = config.type || 'ProsumerNode';
     this.category = config.category || 'Prosumer';
     this.position = config.position || { x: 300, y: 300 };
+
+    // Geographical Location (Open-Meteo Telemetry)
+    this.latitude = typeof config.latitude === 'number' ? config.latitude : 37.7749;
+    this.longitude = typeof config.longitude === 'number' ? config.longitude : -122.4194;
+    this.weatherTelemetry = {
+      shortwaveRadiation: 650,
+      cloudCover: 15,
+      solarForecast: 'FORECAST_CLEAR',
+      hourlyRadiation: [600, 450, 200],
+      isLive: false
+    };
 
     // Cryptographic Wallet Identity (Ethers.js)
     if (config.privateKey) {
@@ -45,7 +57,7 @@ export class EdgeAgent {
     this.currentAction = 'HOLD';
     this.isExploration = false;
     this.qValues = [];
-    this.stateKey = 'BALANCED|NO_BATTERY|MID|TASK_DONE';
+    this.stateKey = 'BALANCED|NO_BATTERY|MID|TASK_DONE|FORECAST_CLEAR';
     this.prevStateKey = null;
     this.prevAction = null;
     this.history = config.history || [];
@@ -138,19 +150,20 @@ export class EdgeAgent {
   }
 
   async tick() {
-    // 1. Update local physical generation & base load
-    this.updatePhysics();
+    // 1. Update local physical generation & base load from localized weather telemetry
+    await this.updatePhysics();
 
     const netPowerKW = this.currentGenKW - this.currentLoadKW;
 
-    // 2. Discretize current state for Q-Learning
+    // 2. Discretize current state for Q-Learning (including 3-hour solar lookahead)
     const currentStateKey = this.brain.discretizeState({
       netPowerKW,
       batteryKWh: this.batteryKWh,
       maxBatteryKWh: this.maxBatteryKWh,
       hasBattery: this.hasBattery,
       spotPrice: this.spotPrice,
-      deferrableLoadKWh: this.deferrableLoadKWh
+      deferrableLoadKWh: this.deferrableLoadKWh,
+      solarForecast: this.weatherTelemetry?.solarForecast || 'FORECAST_CLEAR'
     });
 
     const validActions = this.brain.getValidActions({
@@ -191,6 +204,10 @@ export class EdgeAgent {
               amountKwh: neededKwh,
               priceLimit: Number(Math.min(0.24, this.spotPrice + 0.01).toFixed(3))
             };
+          }
+          // If preemptively charging ahead of a solar drop, reward anticipatory behavior
+          if (this.weatherTelemetry?.solarForecast === 'FORECAST_DROP') {
+            immediateReward += 0.25;
           }
         }
         break;
@@ -283,22 +300,28 @@ export class EdgeAgent {
     this.publishTelemetry();
   }
 
-  updatePhysics() {
-    let solarMultiplier = 1.0;
-    if (this.weather === 'Sunny') solarMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
-    else if (this.weather === 'Cloudy') solarMultiplier = 0.45 + (Math.random() * 0.15);
-    else if (this.weather === 'Solar Surge') solarMultiplier = 1.65 + (Math.random() * 0.3);
+  async updatePhysics() {
+    // 1. Fetch real-world / cached Open-Meteo telemetry for agent coordinates
+    try {
+      this.weatherTelemetry = await weatherService.getTelemetry(this.latitude, this.longitude);
+    } catch (err) {
+      console.warn(`[Agent ${this.id}] Weather fetch fallback:`, err.message);
+    }
 
-    let demandMultiplier = 1.0;
-    if (this.demandScenario === 'Normal') demandMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
-    else if (this.demandScenario === 'Peak Surge') demandMultiplier = 1.55 + (Math.random() * 0.35);
-
+    // 2. Physical Solar Generation based on Shortwave Radiation (W/m²) and Cloud Cover (%)
     if (this.baseGenKW > 0) {
-      const genJitter = (Math.random() * 0.8) - 0.4;
-      this.currentGenKW = Math.max(0, Number((this.baseGenKW * solarMultiplier + genJitter).toFixed(2)));
+      const radiationRatio = Math.max(0, (this.weatherTelemetry.shortwaveRadiation || 0) / 750);
+      const cloudFactor = Math.max(0.15, 1 - ((this.weatherTelemetry.cloudCover || 0) / 160));
+      const genJitter = (Math.random() * 0.4) - 0.2;
+      this.currentGenKW = Math.max(0, Number((this.baseGenKW * radiationRatio * cloudFactor + genJitter).toFixed(2)));
     } else {
       this.currentGenKW = 0;
     }
+
+    // 3. Base Load & Demand Multiplier
+    let demandMultiplier = 1.0;
+    if (this.demandScenario === 'Normal') demandMultiplier = 1.0 + (Math.random() * 0.2 - 0.1);
+    else if (this.demandScenario === 'Peak Surge') demandMultiplier = 1.55 + (Math.random() * 0.35);
 
     const loadJitter = (Math.random() * 0.6) - 0.3;
     this.currentLoadKW = Math.max(0.4, Number((this.baseLoadKW * demandMultiplier + loadJitter).toFixed(2)));
@@ -380,6 +403,8 @@ export class EdgeAgent {
   updateSettings(newSettings) {
     if (typeof newSettings.baseLoadKW === 'number') this.baseLoadKW = newSettings.baseLoadKW;
     if (typeof newSettings.baseGenKW === 'number') this.baseGenKW = newSettings.baseGenKW;
+    if (typeof newSettings.latitude === 'number') this.latitude = newSettings.latitude;
+    if (typeof newSettings.longitude === 'number') this.longitude = newSettings.longitude;
     if (typeof newSettings.epsilon === 'number') this.brain.epsilon = newSettings.epsilon;
     if (newSettings.strategy) this.strategy = newSettings.strategy;
     this.publishTelemetry();
@@ -392,6 +417,9 @@ export class EdgeAgent {
       type: this.type,
       category: this.category,
       position: this.position,
+      latitude: this.latitude,
+      longitude: this.longitude,
+      weather: this.weatherTelemetry,
       address: this.address,
       walletBalance: this.walletBalance,
       hasBattery: this.hasBattery,

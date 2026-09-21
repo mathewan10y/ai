@@ -71,7 +71,6 @@
   display: none !important;
 }
 
-/* Glowing Trading Edge Animations */
 @keyframes flow-p2p {
   from {
     stroke-dashoffset: 24;
@@ -79,6 +78,21 @@
   to {
     stroke-dashoffset: 0;
   }
+}
+
+@keyframes fiber-optic-flow {
+  from {
+    stroke-dashoffset: 28;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.fiber-optic-path {
+  stroke-dasharray: 8 6;
+  animation: fiber-optic-flow 0.65s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(234, 179, 8, 0.7));
 }
 
 .p2p-edge-path {

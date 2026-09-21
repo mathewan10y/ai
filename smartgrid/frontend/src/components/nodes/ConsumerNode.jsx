@@ -30,12 +30,12 @@ const ConsumerNode = ({ id, data, selected }) => {
       }`}
     >
       {/* Handles */}
-      <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
-      <Handle type="source" position={Position.Top} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
-      <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
-      <Handle type="source" position={Position.Left} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
-      <Handle type="target" position={Position.Right} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
-      <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="top-target" type="target" position={Position.Top} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="top" type="source" position={Position.Top} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="left-target" type="target" position={Position.Left} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="left" type="source" position={Position.Left} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="right-target" type="target" position={Position.Right} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="right" type="source" position={Position.Right} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
 
       {/* Header Bar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-slate-800/30">
@@ -135,8 +135,8 @@ const ConsumerNode = ({ id, data, selected }) => {
       </div>
 
       {/* Bottom handles */}
-      <Handle type="target" position={Position.Bottom} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
-      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="bottom-target" type="target" position={Position.Bottom} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-orange-400 !border-slate-900" />
     </div>
   );
 };

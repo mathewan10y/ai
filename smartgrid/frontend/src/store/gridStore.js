@@ -63,42 +63,74 @@ export const useGridStore = create((set, get) => {
       };
     });
 
-    // Handle ephemeral trade edges with strict 2500ms lifecycle pruning
+    // Handle physical grid transfers & P2P trade animations with strict 2500ms lifecycle
     const incomingTrades = data.activeTrades || [];
     incomingTrades.forEach((trade) => {
       const source = trade.source || trade.sellerId;
       const target = trade.target || trade.buyerId;
-      const edgeId = `edge-${source}-${target}`;
 
-      const ephemeralTrade = {
-        ...trade,
-        id: edgeId,
-        source,
-        target
-      };
-
-      // Clear any existing timer for this edge
-      if (activeEdgeTimers.has(edgeId)) {
-        clearTimeout(activeEdgeTimers.get(edgeId));
-      }
-
-      // Add to store without duplication
-      set((state) => ({
-        activeTrades: [
-          ...state.activeTrades.filter((t) => t.id !== edgeId),
-          ephemeralTrade
-        ]
-      }));
-
-      // Automatically prune edge after 2500ms animation completion
-      const timer = setTimeout(() => {
+      if (trade.type === 'GRID_IMPORT') {
+        // Power flowing from Substation -> Busbar -> Buyer Node
         set((state) => ({
-          activeTrades: state.activeTrades.filter((t) => t.id !== edgeId)
+          activeGridTransfers: {
+            ...state.activeGridTransfers,
+            [target]: { type: 'IMPORT', amount: trade.amount, price: trade.price },
+            'grid-main': { type: 'EXPORT', amount: trade.amount, price: trade.price }
+          }
         }));
-        activeEdgeTimers.delete(edgeId);
-      }, 2500);
 
-      activeEdgeTimers.set(edgeId, timer);
+        setTimeout(() => {
+          set((state) => {
+            const next = { ...state.activeGridTransfers };
+            delete next[target];
+            delete next['grid-main'];
+            return { activeGridTransfers: next };
+          });
+        }, 2500);
+      } else if (trade.type === 'GRID_FEEDIN') {
+        // Power flowing from Seller Node -> Busbar -> Substation
+        set((state) => ({
+          activeGridTransfers: {
+            ...state.activeGridTransfers,
+            [source]: { type: 'EXPORT', amount: trade.amount, price: trade.price },
+            'grid-main': { type: 'IMPORT', amount: trade.amount, price: trade.price }
+          }
+        }));
+
+        setTimeout(() => {
+          set((state) => {
+            const next = { ...state.activeGridTransfers };
+            delete next[source];
+            delete next['grid-main'];
+            return { activeGridTransfers: next };
+          });
+        }, 2500);
+      } else if (trade.type === 'P2P') {
+        // Peer-to-Peer direct financial contract arc over the busbar
+        const edgeId = `p2p-${source}-${target}-${Date.now()}`;
+        const ephemeralTrade = {
+          ...trade,
+          id: edgeId,
+          source,
+          target
+        };
+
+        set((state) => ({
+          activeTrades: [
+            ...state.activeTrades.filter((t) => t.id !== edgeId),
+            ephemeralTrade
+          ]
+        }));
+
+        const timer = setTimeout(() => {
+          set((state) => ({
+            activeTrades: state.activeTrades.filter((t) => t.id !== edgeId)
+          }));
+          activeEdgeTimers.delete(edgeId);
+        }, 1800);
+
+        activeEdgeTimers.set(edgeId, timer);
+      }
     });
   });
 
@@ -107,6 +139,8 @@ export const useGridStore = create((set, get) => {
     isConnected: false,
     nodes: [],
     nodePositions: {},
+    customConnections: {},
+    activeGridTransfers: {},
     transactions: [],
     activeTrades: [],
     marketStats: {
@@ -136,6 +170,15 @@ export const useGridStore = create((set, get) => {
         nodes: state.nodes.map((n) =>
           n.id === nodeId ? { ...n, position } : n
         )
+      }));
+    },
+
+    updateConnection: (edgeId, newConnection) => {
+      set((state) => ({
+        customConnections: {
+          ...state.customConnections,
+          [edgeId]: newConnection
+        }
       }));
     },
 

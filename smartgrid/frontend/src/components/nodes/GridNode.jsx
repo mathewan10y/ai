@@ -18,14 +18,14 @@ const GridNode = ({ id, data, selected }) => {
       }`}
     >
       {/* Handles on 4 directions */}
-      <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="source" position={Position.Top} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="target" position={Position.Left} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="source" position={Position.Left} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="target" position={Position.Right} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="source" position={Position.Right} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="target" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
-      <Handle type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="top-target" type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="top" type="source" position={Position.Top} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="left-target" type="target" position={Position.Left} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="left" type="source" position={Position.Left} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="right-target" type="target" position={Position.Right} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="right" type="source" position={Position.Right} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="bottom-target" type="target" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !bg-cyan-400 !border-slate-900" />
 
       {/* Cyber Glow Header */}
       <div className="relative px-3.5 py-2.5 border-b border-cyan-500/30 bg-gradient-to-r from-cyan-950/70 via-slate-900/80 to-blue-950/70 flex items-center justify-between">

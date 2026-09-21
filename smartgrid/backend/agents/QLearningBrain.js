@@ -18,11 +18,11 @@ export class QLearningBrain {
   }
 
   /**
-   * Discretizes continuous physics & market telemetry into composite string state key:
-   * State = NetPower | Storage | MarketPrice | DeferrableLoad
-   * e.g. "SURPLUS|MED_BATT|MID|TASK_PENDING"
+   * Discretizes continuous physics, market telemetry, and 3-hour solar forecast into a 5D state key:
+   * State = NetPower | Storage | MarketPrice | DeferrableLoad | SolarForecast
+   * e.g. "SURPLUS|MED_BATT|MID|TASK_PENDING|FORECAST_DROP"
    */
-  discretizeState({ netPowerKW, batteryKWh, maxBatteryKWh, hasBattery, spotPrice, deferrableLoadKWh }) {
+  discretizeState({ netPowerKW, batteryKWh, maxBatteryKWh, hasBattery, spotPrice, deferrableLoadKWh, solarForecast }) {
     // 1. Net Power
     let netCategory = 'BALANCED';
     if (netPowerKW > 0.5) netCategory = 'SURPLUS';
@@ -45,7 +45,10 @@ export class QLearningBrain {
     // 4. Deferrable Load
     const deferrableCategory = (deferrableLoadKWh && deferrableLoadKWh > 0.5) ? 'TASK_PENDING' : 'TASK_DONE';
 
-    return `${netCategory}|${storageCategory}|${priceCategory}|${deferrableCategory}`;
+    // 5. Solar Forecast
+    const forecastCategory = solarForecast || 'FORECAST_CLEAR';
+
+    return `${netCategory}|${storageCategory}|${priceCategory}|${deferrableCategory}|${forecastCategory}`;
   }
 
   /**

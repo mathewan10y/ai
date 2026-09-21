@@ -91,38 +91,11 @@ export default function Header() {
 
       {/* Interactive Simulation Controls */}
       <div className="flex items-center space-x-2">
-        {/* Weather Scenarios */}
-        <div className="flex items-center bg-slate-900/90 rounded-lg p-1 border border-slate-800 text-xs">
-          <button
-            onClick={() => setWeather('Sunny')}
-            title="Sunny Weather (Normal Solar)"
-            className={`px-2 py-1 rounded flex items-center space-x-1 transition-all ${
-              weather === 'Sunny' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Sun className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Sunny</span>
-          </button>
-          <button
-            onClick={() => setWeather('Cloudy')}
-            title="Cloudy Weather (Low Solar)"
-            className={`px-2 py-1 rounded flex items-center space-x-1 transition-all ${
-              weather === 'Cloudy' ? 'bg-slate-700 text-slate-200 font-bold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <CloudSun className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Cloudy</span>
-          </button>
-          <button
-            onClick={() => setWeather('Solar Surge')}
-            title="Inject Solar Surge (+60% Generation)"
-            className={`px-2 py-1 rounded flex items-center space-x-1 transition-all ${
-              weather === 'Solar Surge' ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-400 font-bold animate-pulse' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Solar Surge</span>
-          </button>
+        {/* Open-Meteo Live Telemetry Badge */}
+        <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-800/60 text-cyan-300 text-xs font-mono">
+          <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+          <span>Open-Meteo Telemetry</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
         </div>
 
         {/* Demand Spike Toggle */}

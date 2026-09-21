@@ -28,7 +28,9 @@ import {
   Gauge,
   Sparkles,
   Clock,
-  Ban
+  Ban,
+  Globe,
+  CloudSun
 } from 'lucide-react';
 import { useGridStore } from '../../store/gridStore';
 
@@ -378,6 +380,61 @@ export default function TradingDashboard() {
                     <div className="mt-1 text-[9px] text-cyan-400 font-mono flex items-center space-x-1">
                       <Clock className="w-2.5 h-2.5" />
                       <span>{selectedNode.deferrableLoadKWh} kWh DR Task</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Open-Meteo Geographical Weather & 3-Hour Lookahead */}
+              <div className="glass-card p-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950/90 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center space-x-1.5 text-amber-300 font-semibold">
+                    <Globe className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Open-Meteo Solar Forecast</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {selectedNode.latitude ? `${selectedNode.latitude.toFixed(2)}°N, ${selectedNode.longitude?.toFixed(2)}°E` : 'Geo-Tagged'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                  <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                    <div className="text-[9px] text-slate-500 uppercase">Shortwave Irradiance</div>
+                    <div className="font-bold text-amber-300 text-sm mt-0.5">
+                      {selectedNode.weather?.shortwaveRadiation ?? 0} <span className="text-[9px] text-slate-400">W/m²</span>
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                    <div className="text-[9px] text-slate-500 uppercase">Cloud Coverage</div>
+                    <div className="font-bold text-slate-200 text-sm mt-0.5">
+                      {selectedNode.weather?.cloudCover ?? 0}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3-Hour Lookahead Forecast Bars */}
+                <div className="pt-1 space-y-1.5">
+                  <div className="flex justify-between items-center text-[10px] font-mono">
+                    <span className="text-slate-400">3-Hour Lookahead:</span>
+                    <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                      selectedNode.weather?.solarForecast === 'FORECAST_DROP'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                        : selectedNode.weather?.solarForecast === 'FORECAST_NIGHT'
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}>
+                      {selectedNode.weather?.solarForecast || 'FORECAST_CLEAR'}
+                    </span>
+                  </div>
+
+                  {selectedNode.weather?.hourlyRadiation && selectedNode.weather.hourlyRadiation.length > 0 && (
+                    <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+                      {selectedNode.weather.hourlyRadiation.slice(0, 3).map((rad, idx) => (
+                        <div key={idx} className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-center font-mono">
+                          <div className="text-[9px] text-slate-500">+{idx + 1}h</div>
+                          <div className="text-[10px] font-bold text-amber-300">{Math.round(rad)} W</div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

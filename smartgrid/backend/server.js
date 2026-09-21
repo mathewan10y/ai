@@ -58,6 +58,8 @@ app.post('/api/grid/nodes', (req, res) => {
       maxGen,
       baseLoad,
       deferrableLoadKWh,
+      latitude,
+      longitude,
       position
     } = req.body;
 
@@ -86,6 +88,8 @@ app.post('/api/grid/nodes', (req, res) => {
       baseSolar: Number(baseSolar !== undefined ? baseSolar : (maxGen || 0)),
       baseLoad: Number(baseLoad || 4.0),
       deferrableLoadKWh: Number(deferrableLoadKWh || (category === 'Consumer' ? 10.0 : 3.0)),
+      latitude: typeof latitude === 'number' ? latitude : (latitude ? parseFloat(latitude) : 37.7749),
+      longitude: typeof longitude === 'number' ? longitude : (longitude ? parseFloat(longitude) : -122.4194),
       position: position || { x: 450 + randomOffset, y: 350 + randomOffset }
     });
 
